@@ -53,8 +53,9 @@ option.
 - [Docs/Design-AD-Discovery.md](Docs/Design-AD-Discovery.md) — implemented.
 - [Docs/Design-Local-Windows-Discovery.md](Docs/Design-Local-Windows-Discovery.md) — implemented.
 - [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md) — proposed, not yet
-  built; lists the open decisions (connectivity mechanism, credential shape for SSH, output schema)
-  that need an answer before it is.
+  built. Connectivity is decided (`Posh-SSH`, verified live); still open: shared vs. separate
+  input/output files with the Windows tool, default host-key trust policy, and validation against a
+  real SSH target (none was available in this environment).
 
 ## Prerequisites
 
