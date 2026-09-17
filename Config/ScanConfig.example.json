@@ -1,0 +1,49 @@
+{
+  "OutputDirectory": "C:\\aPeDiscovery\\Output\\AD",
+  "LogDirectory": "C:\\aPeDiscovery\\Output\\AD\\Logs",
+  "ArchiveRetentionCount": 30,
+  "Domains": [
+    {
+      "DomainName": "contoso.com",
+      "Server": "dc01.contoso.com",
+      "Enabled": true,
+      "BaseOU": "OU=Corp,DC=contoso,DC=com",
+      "OUDepth": -1,
+      "CredentialSource": "CurrentUser",
+      "CredentialParams": {}
+    },
+    {
+      "DomainName": "fabrikam.local",
+      "Server": "dc01.fabrikam.local",
+      "Enabled": true,
+      "BaseOU": "DC=fabrikam,DC=local",
+      "OUDepth": 3,
+      "ExcludeOUs": [
+        "OU=Disabled Accounts,DC=fabrikam,DC=local"
+      ],
+      "IncludeGroupCategories": ["Security"],
+      "ExcludeGroupNames": ["Domain Users", "Domain Computers", "*-Test-*"],
+      "CredentialSource": "CCP",
+      "CredentialParams": {
+        "BaseUrl": "https://ccp.fabrikam.local",
+        "AppID": "aPeDiscovery",
+        "Safe": "AD-ReadOnly-Accounts",
+        "Object": "svc-fabrikam-addiscovery"
+      }
+    },
+    {
+      "DomainName": "untrusted-partner.local",
+      "Enabled": true,
+      "OUDepth": -1,
+      "CredentialSource": "Conjur",
+      "CredentialParams": {
+        "ApplianceUrl": "https://conjur.contoso.com",
+        "Account": "contoso",
+        "AuthnLogin": "host/aPeDiscovery",
+        "ApiKeyPath": "C:\\aPeDiscovery\\Secrets\\conjur-apikey.txt",
+        "Identifier": "addiscovery/untrusted-partner/password",
+        "UsernameIdentifier": "addiscovery/untrusted-partner/username"
+      }
+    }
+  ]
+}

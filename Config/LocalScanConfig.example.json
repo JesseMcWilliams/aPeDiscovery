@@ -1,0 +1,27 @@
+{
+  "OutputDirectory": "C:\\aPeDiscovery\\Output\\Local",
+  "LogDirectory": "C:\\aPeDiscovery\\Output\\Local\\Logs",
+  "ArchiveRetentionCount": 30,
+  "MaxConcurrency": 5,
+  "ConnectTimeoutMs": 2000,
+  "RetryCount": 1,
+  "RetryDelaySeconds": 5,
+  "ExcludeUserNames": ["DefaultAccount", "WDAGUtilityAccount", "Guest"],
+  "ExcludeGroupNames": ["*-Test-*"],
+  "DatabaseSignatures": [
+    { "Engine": "SQL Server", "ServicePattern": "MSSQLSERVER", "DefaultPort": 1433 },
+    { "Engine": "SQL Server (named instance)", "ServicePattern": "MSSQL$*", "DefaultPort": null },
+    { "Engine": "MySQL", "ServicePattern": "MySQL*", "DefaultPort": 3306 },
+    { "Engine": "MariaDB", "ServicePattern": "MariaDB*", "DefaultPort": 3306 },
+    { "Engine": "PostgreSQL", "ServicePattern": "postgresql*", "DefaultPort": 5432 },
+    { "Engine": "Oracle Database", "ServicePattern": "OracleService*", "DefaultPort": 1521 },
+    { "Engine": "Oracle Listener", "ServicePattern": "*TNSListener*", "DefaultPort": 1521 },
+    { "Engine": "MongoDB", "ServicePattern": "MongoDB*", "DefaultPort": 27017 }
+  ],
+  "SoftwareSignatures": [
+    { "Name": "IIS", "Category": "WebServer", "ServicePattern": "W3SVC", "DefaultPort": 80 },
+    { "Name": "OpenSSH Server", "Category": "RemoteAccess", "ServicePattern": "sshd", "DefaultPort": 22 },
+    { "Name": "Remote Desktop", "Category": "RemoteAccess", "ServicePattern": "TermService", "DefaultPort": 3389 },
+    { "Name": "Windows Firewall", "Category": "Security", "ServicePattern": "MpsSvc", "DefaultPort": null }
+  ]
+}

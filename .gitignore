@@ -1,0 +1,17 @@
+# Real config (contains real domain/computer names and credential-source parameters)
+Config/ScanConfig.json
+Config/LocalScanConfig.json
+Config/ComputersToScan.csv
+
+# Runtime output
+Output/
+*.csv
+!Config/*.example.csv
+
+# Secrets (Export-Clixml credential files, Conjur API key files, etc.)
+Secrets/
+*.clixml
+
+# Editor/OS cruft
+.vscode/
+Thumbs.db

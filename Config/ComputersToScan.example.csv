@@ -1,0 +1,5 @@
+ComputerName,Enabled,CredentialSource,CredentialParamsJson,Notes
+SRV-APP01,1,CP,"{""AppID"":""aPeDiscovery"",""Safe"":""Local-Admin-Accounts"",""Object"":""SRV-APP01-local-admin""}",Prod app server
+SRV-APP02,1,CCP,"{""BaseUrl"":""https://ccp.contoso.com"",""AppID"":""aPeDiscovery"",""Safe"":""Local-Admin-Accounts"",""Object"":""SRV-APP02-local-admin""}",
+WKS-0001,1,PSCredential,"{""CredentialFilePath"":""C:\\aPeDiscovery\\Secrets\\wks-0001.clixml""}",Uses a pre-exported DPAPI credential file
+LEGACY-SRV,0,CurrentUser,"{}",Disabled - decommissioned
