@@ -1,6 +1,16 @@
 # Local Linux Discovery — Design
 
-**Status:** Proposed — connectivity mechanism decided and verified end-to-end against a real Linux VM; sudo rights discovery/elevation in scope for every discovered account (not just the scan account), with no-access and passwordless (`NOPASSWD`) cases verified live (password-required case still open); users/groups/membership/password-aging/password-state/SSH-login-eligibility all verified at or near Windows parity (Sections 6/6a); database/software/service-account detection (Phase 5) designed and verified against a real PostgreSQL install (Section 6b), including a real correction to service-account resolution it caught; Linux output/input files decided to stay entirely separate from the Windows tool's; no script code written yet
+**Status:** Phases 1-3 implemented and verified live — `Export-LocalLinuxGroups.ps1` and
+`Modules\LocalLinuxComputerScanner.psm1` now exist, covering connectivity (password + key auth,
+retry, `RunspacePool`-based concurrency mirroring `Export-LocalGroups.ps1` exactly), users/groups/
+membership, password-state fields, and sudo rights for every discovered account
+(`LinuxSudoRights.csv`) — all confirmed against the real Ubuntu test VM, including a dedicated
+concurrency test (3 simultaneous scans of the same host, correct per-runspace isolation, no
+cross-talk). Phase 4's remaining gap is the password-required sudo case (no test account configured
+for it) and per-account SSH-login-eligibility (`SshPasswordLoginPossible`/`SshKeyLoginPossible`), both
+still design-only. Phase 5 (database/software/service-account detection) is designed and verified
+against a real PostgreSQL install (Section 6b) but not yet implemented in code. Linux output/input
+files are entirely separate from the Windows tool's, as decided.
 **Initiated:** 2026-09-16
 **Origin:** User request to extend local-account discovery (already built for Windows, via
 `Export-LocalGroups.ps1`) to Linux targets, keeping output formats similar across both. The user
@@ -532,21 +542,28 @@ port* case generally — but the process-owner correction above is settled, not 
 
 ## 8. Phased rollout (proposed)
 
-1. **Phase 1** — password auth via `Posh-SSH` (no `CredentialResolver.psm1` changes needed);
-   `/etc/passwd` + `/etc/group`; no primary-group resolution. All verified live.
-2. **Phase 2** — key-based auth: add an optional `KeyFilePath` field to `CredentialParams`, passed
-   straight through to `New-SSHSession -KeyFile`. Turned out much smaller than originally scoped —
-   see Section 4 — since `Get-DiscoveryCredential`'s existing return shape already covers the
-   username/passphrase half. Verified live.
-3. **Phase 3** — sudo rights discovery (`LinuxSudoRights.csv`, see Section 5a): classify each scanned
-   account as no-access / passwordless / password-required, based on `sudo -n -l`. The no-access and
-   passwordless cases are both verified live now; only password-required is still unconfirmed.
-4. **Phase 4** — sudo-elevated command execution, unlocking `/etc/shadow`-derived fields
-   (`Disabled`/`PasswordLastSet`/`PasswordNeverExpires`, folded into `LinuxLocalUsers.csv` per
-   Section 6 rather than treated as a separate later addition) and `BadPasswordAttempts` via
-   `faillock`. The passwordless path (`sudo -n <command>`) is verified live end-to-end, including the
-   "derive only specific non-sensitive fields remotely, never pull raw shadow content back" approach.
-   Only the password-required path (resolving and supplying a sudo password) remains unverified.
+1. **Phase 1 — implemented.** Password auth via `Posh-SSH` (no `CredentialResolver.psm1` changes
+   needed); `/etc/passwd` + `/etc/group`; no primary-group resolution; `RunspacePool`-based
+   concurrency mirroring `Export-LocalGroups.ps1`. All verified live, including a dedicated
+   concurrency test.
+2. **Phase 2 — implemented.** Key-based auth: an optional `KeyFilePath` field in `CredentialParams`,
+   passed straight through to `New-SSHSession -KeyFile`. Turned out much smaller than originally
+   scoped — see Section 4 — since `Get-DiscoveryCredential`'s existing return shape already covers
+   the username/passphrase half. Verified live (this is how the test VM itself is scanned).
+3. **Phase 3 — implemented.** Sudo rights discovery (`LinuxSudoRights.csv`, see Section 5a): every
+   discovered account classified as `None` / `PasswordlessSomeOrAll` / `PasswordRequired`, via one
+   remote `sudo -n -l -U <user>` loop per computer. No-access and passwordless are both verified live
+   against real data (including the `CyberArkPCRec`/`CyberArkSHRec` layered-rule case); the
+   password-required *classification* itself is implemented and was exercised live against those two
+   accounts' `ALL`-via-group rule, but no test account exists yet to confirm the `PasswordRequired`
+   label is reached only in that case and never misfires on a passwordless one.
+4. **Phase 4 — partially implemented.** `/etc/shadow`-derived fields (`PasswordState`,
+   `PasswordLastSet`, `PasswordNeverExpires`) are implemented in
+   `Modules\LocalLinuxComputerScanner.psm1` and verified live (including graceful degradation to
+   blank fields when the scan account has no usable sudo). **Not yet implemented**:
+   `BadPasswordAttempts` (`faillock`), per-account `SshPasswordLoginPossible`/`SshKeyLoginPossible`,
+   and actually supplying a sudo password for the password-required case (`echo password | sudo -S`)
+   — all three remain design-only (Section 6/7).
 5. **Phase 5** *(added 2026-09-17, designed 2026-09-17)* — `LinuxDatabases.csv`/`LinuxSoftware.csv`
    (systemd-unit-name signature matching, enriched via `systemctl show`, listening confirmed via one
    `ss -tlnp` capture per computer rather than a probe per signature) and `LinuxServiceAccounts.csv`
@@ -555,9 +572,9 @@ port* case generally — but the process-owner correction above is settled, not 
 
 ## 9. Progress tracker
 
-No script code exists for this yet (`Export-LocalLinuxGroups.ps1` is not written). Connectivity
-(`Posh-SSH`) is decided, and its full connect/execute/parse/disconnect flow is now verified against
-both a Windows and a real Linux target.
+`Export-LocalLinuxGroups.ps1` and `Modules\LocalLinuxComputerScanner.psm1` now exist and are verified
+live against the real test VM (Round 8) — connectivity, concurrency, users/groups/membership,
+password-state fields, and sudo rights for every account are all implemented and working.
 
 **Round 1 — Windows OpenSSH Server (proved the mechanism works at all):**
 - Windows' OpenSSH Server feature was enabled on the development machine (with the user's approval)
@@ -684,6 +701,38 @@ design, and caught a real bug in it:**
   `list-units` too — and a fifth `UnitFileState` value, `enabled-runtime`, beyond the four confirmed
   earlier.
 
+**Round 8 — implementation: `Export-LocalLinuxGroups.ps1` + `Modules\LocalLinuxComputerScanner.psm1`
+built and verified live (2026-09-17):**
+- Per user request ("update the linux scanner to allow multiple processes at once like the windows
+  scanner"), the first real script was written rather than continuing as design-only — there was no
+  script to "update" a concurrency feature onto, so this built the whole Phase 1-3 slice at once,
+  following this document's already-settled design exactly (Section 5's architecture diagram, the
+  `ImportPSModule`-per-path fix, the marker-line/array-slicing parse approach).
+- One combined remote command per computer (not one call per data type) collects `/etc/passwd`,
+  `/etc/group`, a `sudo`-derived `/etc/shadow` projection, and every discovered account's
+  `sudo -n -l -U <user>` output, using `===MARKER===` lines to delimit sections — parsed by finding
+  each marker's array index and slicing `Invoke-SSHCommand`'s `.Output` between them (per the bug
+  fixed in Round 2), rather than one SSH round trip per data type or per account.
+- Ran against the real test VM (192.222.222.152): 57 users, 88 groups, 15 membership rows, 57
+  sudo-rights rows, on the first successful run — no bugs found in the connect/parse/export path
+  itself. Spot-checked correctness against known real data from earlier rounds: `CAscanner`'s
+  `PasswordState` = `LockedNoHash` (matches Round 5's finding for this account), its
+  `SudoAccess` = `PasswordlessSomeOrAll` with the exact `ALL` + `NOPASSWD: ALL` rule text (matches
+  Round 3's grant), and `CyberArkPCRec`/`CyberArkSHRec` both = `PasswordRequired` with the exact
+  layered `ALL` + `/usr/bin/passwd` rule text (matches Round 6's finding) — the implementation
+  reproduces every previously-verified finding correctly, not just new output.
+- **Concurrency specifically verified**, since that was the explicit ask: ran 3 simultaneous scans
+  against the same VM (`MaxConcurrency=3`, 3 rows in the input CSV all pointing at the same host).
+  All 3 `New-SSHSession`s started within the same logged second and all 3 completed within
+  well under a second total, with results correctly isolated per runspace (171 total user rows =
+  exactly 57 × 3, 264 group rows = exactly 88 × 3) — confirms both genuine parallel execution (not
+  serialized despite looking that way from one host) and no shared-state corruption between
+  concurrent attempts, the main risk a `RunspacePool` design has to rule out.
+- Scoped out of this pass, left as Section 8/10 open items: `BadPasswordAttempts` (`faillock`),
+  per-account SSH-login eligibility, Phase 5 (databases/software/service accounts), and the
+  password-required sudo case's actual password-supply mechanism — none of these were part of the
+  concurrency ask and Phase 5 in particular still has an open design question (Section 10).
+
 ## 10. Open decisions (need an answer before Phase 1 starts)
 
 - ~~Shared or separate input file/script?~~ / ~~Shared or separate output schema?~~ — **decided with
@@ -693,10 +742,15 @@ design, and caught a real bug in it:**
   simplest for an unattended nightly run) or require a pre-seeded known-hosts store per environment
   (safer against a first-contact MITM, more operational setup)? `-Force` (skip validation entirely)
   should not be a default either way.
-- **`RunspacePool` (mirroring the Windows tool) vs. `Posh-SSH`'s own `Invoke-SSHCommand -SessionId
-  <array> -ThrottleLimit`** for concurrency — Section 5 proposes the former for architectural
-  consistency with `Export-LocalGroups.ps1`, but the latter is a real, simpler alternative Posh-SSH
-  offers natively once sessions are already open. Worth a second look once this is actually built.
+- ~~`RunspacePool` (mirroring the Windows tool) vs. `Posh-SSH`'s own `Invoke-SSHCommand -SessionId
+  <array> -ThrottleLimit`** for concurrency~~ — **decided and verified live (2026-09-17, Round 8):
+  `RunspacePool`.** Built exactly per Section 5's diagram, `MaxConcurrency`-throttled, one
+  `Invoke-LocalLinuxComputerScan` call per computer. Verified with 3 simultaneous scans of the same
+  test VM (all 3 `New-SSHSession`s opened and completed within the same second, each runspace's rows
+  correctly isolated — no cross-talk between concurrent attempts' user/group/sudo data). Posh-SSH's
+  own `-SessionId`/`-ThrottleLimit` alternative was not built — the `RunspacePool` approach already
+  works and keeps the two scripts' concurrency model identical, which was the original reason to
+  prefer it.
 - **Phase 5's remaining open question, narrowed by the real PostgreSQL test**: unit-name matching
   (enriched via `systemctl show`) as primary and the `ss -tlnp` port table as corroboration is
   confirmed to work for a real engine now — still open is whether the port table should *also* drive
@@ -742,3 +796,4 @@ design, and caught a real bug in it:**
 | 2026-09-17 | Per user request, extended sudo rights discovery (Section 5a) to cover every discovered account, not just the scan account's own. Verified `sudo -n -l -U <username>` works for checking another account's rights, correctly resolving group-based grants (`ladmin`, via the `sudo` group) without this design needing to separately cross-reference group membership. Found the "no access" message is worded differently for a `-U` check (`is not allowed to run sudo`) than a self-check (`Sorry, user X may not run sudo`) — both need recognizing. Found a genuinely PAM-relevant real result: `CyberArkPCRec`/`CyberArkSHRec` each hold a group-inherited `ALL` rule plus their own account-specific grant to run `/usr/bin/passwd` as anyone — i.e. reset any local account's password — confirming why the design preserves full rule text per account rather than a single flag. Also confirmed `/etc/sudoers`/`/etc/sudoers.d/*` are directly readable with `sudo` as a secondary, raw-rule/provenance source. Identified a stronger constraint than previously stated: checking other accounts' rights this way needs the scanning account to have *broad* sudo rights, not just some. |
 | 2026-09-17 | Per user direction, decided Linux output (and input) files stay entirely separate from the Windows tool's — no shared filenames, no `Platform` column, resolving two long-standing open decisions. Designed Phase 5 in full (new Section 6b): `LinuxDatabases.csv`/`LinuxSoftware.csv` (systemd-unit-name signature matching, parallel to Windows' `DatabaseSignatures`/`SoftwareSignatures` shape, enriched via `systemctl show`, listening confirmed via one `ss -tlnp` capture per computer rather than a probe per signature) and `LinuxServiceAccounts.csv` (every non-`root` service account). Verified live before finalizing: `Description=` is a real, populated property for every service (confirmed `DisplayName` equivalent exists); `systemctl list-unit-files` (324 unit files) is the correct enumeration scope to match Windows' "every registered service" coverage, not `list-units` (222 — only ever-loaded units). Corrected the earlier "blank `User=` is an unclear gap" framing to what it actually is: a determinate default (`root`), handled with the same noise-filtering rule Windows already applies to its own built-in identities. The starter `LinuxDatabaseSignatures` examples (PostgreSQL/MySQL/MariaDB/MongoDB unit names) are explicitly flagged as unverified, since the test VM has no database engine installed to check them against. |
 | 2026-09-17 | The user reported PostgreSQL on the test VM "keeps stopping" and asked for it to be investigated. Found no actual problem: `NRestarts=0`, `Result=success`, only one stop/start cycle in the entire journal, a clean "received fast shutdown request" with zero errors/OOM kills, and `/var/log/apt/history.log` confirming the one restart was triggered by a routine `apt upgrade` that updated the `postgresql-18` package — not a crash loop. With a real engine now available, closed Phase 5's last open item by testing the actual `LinuxDatabaseSignatures` design against it: the `postgresql*` unit-pattern match, `systemctl show` enrichment, and `ss -tlnp` listening confirmation all worked (`postgresql@18-main.service`, port 5432, owning process `postgres`). This also **caught a real bug in the design's own service-account resolution**: `systemctl show`'s `User=` for `postgresql@18-main.service` was blank (which the existing rule would have classified as `root` and excluded), but the actual running process is owned by `postgres` — `pg_ctlcluster` starts as root and drops privileges internally, the same pattern already seen with `sshd`. Corrected Section 6b: `ServiceAccountName` must be resolved from the actual process owner (via `ss -tlnp`'s process-owner field, or `ps -o user= -p <MainPID>`), not read directly from `systemctl show`'s `User=` property. Also found `systemctl list-unit-files` alone misses instantiated template units (it shows only the `postgresql@.service` template, never `postgresql@18-main.service`) — enumeration needs `list-units` too. Found a fifth `UnitFileState` value, `enabled-runtime`, beyond the four confirmed earlier. |
+| 2026-09-17 | Per user request to add concurrency "like the windows scanner," built the first real implementation: `Export-LocalLinuxGroups.ps1` and `Modules\LocalLinuxComputerScanner.psm1` (Phases 1-3, plus the `/etc/shadow`-derived half of Phase 4), following this document's already-settled design exactly — `RunspacePool` sized by `MaxConcurrency` (resolving Section 10's `RunspacePool`-vs-`Posh-SSH`-native-throttling question in favor of `RunspacePool`), one combined marker-delimited remote command per computer, retry-with-backoff, `LinuxScanErrors.csv`. Verified live against the real test VM: correct output reproducing every previously-recorded finding (`CAscanner`'s `LockedNoHash`/`PasswordlessSomeOrAll` state, `CyberArkPCRec`/`CyberArkSHRec`'s layered `PasswordRequired` rules), and a dedicated concurrency test (3 simultaneous scans of the same host, all completing within the same second with correctly isolated per-runspace results, no cross-talk) confirming the `RunspacePool` design is both genuinely parallel and safe. Not yet implemented: `BadPasswordAttempts`, per-account SSH-login eligibility, Phase 5, and the password-required sudo password-supply mechanism — see Section 8. |

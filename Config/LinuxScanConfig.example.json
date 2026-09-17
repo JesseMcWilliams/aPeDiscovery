@@ -1,0 +1,12 @@
+{
+  "OutputDirectory": "C:\\aPeDiscovery\\Output\\Linux",
+  "LogDirectory": "C:\\aPeDiscovery\\Output\\Linux\\Logs",
+  "ArchiveRetentionCount": 30,
+  "MaxConcurrency": 5,
+  "ConnectTimeoutMs": 2000,
+  "SshConnectTimeoutSeconds": 15,
+  "CommandTimeoutSeconds": 60,
+  "AcceptNewHostKey": true,
+  "RetryCount": 1,
+  "RetryDelaySeconds": 5
+}

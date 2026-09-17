@@ -6,7 +6,7 @@ Top level:
 
 | Property | Required | Description |
 |---|---|---|
-| `OutputDirectory` | Yes | Where `ADGroups.csv` / `ADGroupMembers.csv` and the `Archive`/`Logs` subfolders are written. |
+| `OutputDirectory` | Yes | Where `ADGroups.csv` / `ADGroupMembers.csv` / `ADComputers.csv` and the `Archive`/`Logs` subfolders are written. |
 | `LogDirectory` | No | Defaults to `<OutputDirectory>\Logs`. |
 | `ArchiveRetentionCount` | No | Timestamped CSV copies kept per file in `Archive`. Defaults to 30. |
 | `Domains` | Yes | Array of domain entries, described below. |
@@ -24,10 +24,30 @@ Each entry in `Domains`:
 | `IncludeGroupCategories` | No | Array restricting output to these `GroupCategory` values only: `Security`, `Distribution`. Omit (or leave empty) to include both. |
 | `IncludeGroupScopes` | No | Array restricting output to these `GroupScope` values only: `DomainLocal`, `Global`, `Universal`. Omit (or leave empty) to include all three. |
 | `ExcludeGroupNames` | No | Array of exact names or `-like` wildcard patterns (`*`, `?`) matched against each group's `SamAccountName`. Any match excludes the group from both `ADGroups.csv` and `ADGroupMembers.csv`. Useful for noisy built-ins (`Domain Users`, `Domain Computers`) or naming-convention test groups (`*-Test-*`). |
+| `Computers` | No | Object enabling computer-object discovery for this domain — see below. Omit entirely to skip computer discovery for this domain (the default); an empty object (`{}`) enables it with defaults. |
 | `CredentialSource` | Yes | One of `CurrentUser`, `PSCredential`, `CP`, `CCP`, `Conjur`. |
 | `CredentialParams` | Depends on source | See "Credential sources" below. |
 
 `IncludeGroupCategories`/`IncludeGroupScopes`/`ExcludeGroupNames` are all applied together (a group must pass every filter that's set to be included), evaluated in that order, per group, after it's read from AD — an invalid value in `IncludeGroupCategories` or `IncludeGroupScopes` (a typo, e.g. `"Securty"`) fails that domain's run immediately with a clear error rather than silently matching nothing.
+
+### Computer object discovery (`Computers`)
+
+Opt-in per domain (Section header above) — presence of the `Computers` property enables it, its
+absence skips it entirely for that domain, so existing configs written before this feature keep
+working unchanged. Output goes to `ADComputers.csv`, one row per computer object found.
+
+| Property | Required | Description |
+|---|---|---|
+| `BaseOU` | No | Distinguished name to start scanning from — **independent of the domain entry's own `BaseOU`**, since computer objects are commonly organized under a different part of the tree than groups (e.g. `OU=Servers`/`OU=Workstations` vs. `OU=Groups`). Defaults to the domain's root DN. |
+| `OUDepth` | No | Same semantics as the domain entry's `OUDepth`, applied to the computer scan's own `BaseOU`. `-1` (default) = unlimited. |
+| `ExcludeOUs` | No | Same semantics as the domain entry's `ExcludeOUs`, applied to the computer scan's own OU tree. |
+| `NameFilter` | No | Array of exact names or `-like` wildcard patterns, matched against the computer's name with its trailing `$` stripped (e.g. `SRV-APP01`, not `SRV-APP01$`). A computer is included only if it matches **at least one** pattern. Omit (or leave empty) to include all computers found. |
+| `OSTypeFilter` | No | Array of exact values or `-like` wildcard patterns, matched against AD's `operatingSystem` attribute (e.g. `"Windows Server*"`, `"*Linux*"`). Same "match at least one" logic as `NameFilter`. **This attribute is self-reported by the computer at domain-join time and only refreshed periodically** — it can be blank (never populated) or stale (doesn't reflect an OS upgrade that didn't trigger a refresh), not a live, verified fact. |
+
+`NameFilter` and `OSTypeFilter` are both applied (a computer must pass every filter that's set),
+evaluated after the object is read from AD, the same "include only if it matches" logic as the
+group filters above use for exclusion — just inverted, since these are inclusion filters rather than
+exclusions.
 
 ## LocalScanConfig.json (used by Export-LocalGroups.ps1)
 
@@ -188,15 +208,65 @@ actually being one.
 | `CredentialParamsJson` | Depends on source | A JSON object (as a quoted CSV field) with the same shape as `CredentialParams` below. |
 | `Notes` | No | Free text, not used by the script. |
 
+## LinuxComputersToScan.csv (input to Export-LocalLinuxGroups.ps1)
+
+Entirely separate from `ComputersToScan.csv` — a deliberate decision to keep the two platforms'
+input/output files apart rather than share one schema with platform-specific blanks.
+
+| Column | Required | Description |
+|---|---|---|
+| `ComputerName` | Yes | Hostname or IP to scan (used directly as `New-SSHSession -ComputerName`). |
+| `Enabled` | No | `0`/`false` to skip a row without deleting it. |
+| `CredentialSource` | Yes | One of `CurrentUser`, `PSCredential`, `CP`, `CCP`, `Conjur`. |
+| `CredentialParamsJson` | Depends on source | A JSON object (as a quoted CSV field) with the same shape as `CredentialParams` below — plus the Linux-specific `KeyFilePath` field for key-based auth (see "Credential sources"). |
+| `Notes` | No | Free text, not used by the script. |
+
+## LinuxScanConfig.json (used by Export-LocalLinuxGroups.ps1)
+
+| Property | Required | Description |
+|---|---|---|
+| `OutputDirectory` | Yes | Where `LinuxLocalUsers.csv` / `LinuxLocalGroups.csv` / `LinuxLocalGroupMembers.csv` / `LinuxSudoRights.csv` / `LinuxScanErrors.csv` and the `Archive`/`Logs` subfolders are written. |
+| `LogDirectory` | No | Defaults to `<OutputDirectory>\Logs`. |
+| `ArchiveRetentionCount` | No | Defaults to 30. |
+| `MaxConcurrency` | No | How many computers to scan at once, via the same kind of throttled runspace pool as `Export-LocalGroups.ps1`. Defaults to `1` (fully sequential). Must be `1` or greater. Verified live: 3 simultaneous scans of the same host completed within the same second with no cross-talk between their results. |
+| `ConnectTimeoutMs` | No | Timeout for the TCP port-22 reachability check, in milliseconds. Defaults to `2000`. |
+| `SshConnectTimeoutSeconds` | No | Passed to `New-SSHSession -ConnectionTimeout`. Defaults to `15`. |
+| `CommandTimeoutSeconds` | No | Passed to `Invoke-SSHCommand -TimeOut` for the combined per-computer discovery command. Defaults to `60` — the command loops `sudo -n -l -U` over every discovered account, so a host with many local accounts needs more headroom than a single simple command would. |
+| `AcceptNewHostKey` | No | `true` (default) passes `-AcceptKey` to `New-SSHSession`, auto-trusting a host the first time it's scanned (Posh-SSH persists accepted keys to the Run As account's `$HOME\.poshss\hosts.json`, so this only matters on first contact per host). Set `false` to require the host key already be trusted via some other means. |
+| `RetryCount` | No | Additional attempts for a computer that fails, before giving up on it. Defaults to `0`. Each retry re-runs the entire per-computer scan (new SSH session, new combined command); any rows a partial earlier attempt collected are discarded first. |
+| `RetryDelaySeconds` | No | Delay between retry attempts. Defaults to `5`. Ignored when `RetryCount` is `0`. |
+
+These apply globally, to every computer in `LinuxComputersToScan.csv` — there is currently no per-computer override.
+
+### Sudo-dependent fields
+
+`LinuxLocalUsers.csv`'s `PasswordState`/`PasswordLastSet`/`PasswordNeverExpires` and every row of
+`LinuxSudoRights.csv` beyond a bare "no access" all require the **connecting** account to have usable
+`sudo` rights on the target — specifically **broad** (`ALL`) rights to get useful data out of
+`LinuxSudoRights.csv` for accounts other than itself (confirmed live: an account with only a narrow
+sudo grant of its own could not list another account's rights). When the connecting account has no
+sudo access at all, `sudo -n ...` fails fast with no password prompt (confirmed live — it never
+hangs), so these fields are simply left blank/`Unknown` rather than causing the scan to fail. There is
+currently no configuration to *supply* a sudo password for a password-required rule — see
+[Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) Section 5a/10 for the proposed
+(not yet built) `SudoCredentialSource`/`SudoCredentialParams` mechanism.
+
 ## Credential sources
 
-`CredentialSource` / `CredentialParams` (or `CredentialParamsJson`) accept the same shape in both files.
+`CredentialSource` / `CredentialParams` (or `CredentialParamsJson`) accept the same shape in all
+three input files (`ComputersToScan.csv`, `LinuxComputersToScan.csv`, and `ScanConfig.json`'s
+per-domain entries).
 
 - **CurrentUser** — run as whatever account is already running the script. `CredentialParams` is ignored (pass `{}`).
-- **PSCredential** — reads a credential exported ahead of time with `Get-Credential | Export-Clixml -Path ...`. Requires `CredentialFilePath`. Because `Export-Clixml` encrypts with DPAPI, the file can only be read back by the same Windows account, on the same machine, that created it — typically the scheduled task's Run As account.
+- **PSCredential** — reads a credential exported ahead of time with `Get-Credential | Export-Clixml -Path ...`. Requires `CredentialFilePath`. Because `Export-Clixml` encrypts with DPAPI, the file can only be read back by the same Windows account, on the same machine, that created it — typically the scheduled task's Run As account. For `Export-LocalLinuxGroups.ps1` with key-based SSH auth, this file still supplies the SSH username (`New-SSHSession -Credential` is required in every parameter set, including key-based ones) — its password can be an empty `SecureString` when the key itself has no passphrase.
 - **CP** — CyberArk's Application Access Manager Credential Provider, via `CLIPasswordSDK.exe`. Requires `AppID`; and either `Query`, or one or more of `Safe`/`Folder`/`Object`. Optional `ClipasswordsdkPath` if the SDK is installed somewhere other than the default path. Optional `UserName` fallback if the CP doesn't return `PassProps.UserName` for this account.
 - **CCP** — CyberArk's Central Credential Provider REST web service. Requires `BaseUrl` and `AppID`; and either `Query`, or one or more of `Safe`/`Folder`/`Object`. Optional `Reason` and `ClientCertificateThumbprint` (for mutual-TLS AppIDs; the certificate must already be installed in `LocalMachine\My` or `CurrentUser\My`).
 - **Conjur** — Requires `ApplianceUrl`, `Account`, `AuthnLogin` (the host identity), `Identifier` (the variable holding the password), and either `ApiKeyPath` (a file containing the host's API key) or `ApiKeyEnvVar` (an environment variable containing it). Also requires either `UserName` (literal) or `UsernameIdentifier` (a second Conjur variable holding the username).
+
+`Export-LocalLinuxGroups.ps1` recognizes one additional `CredentialParams` field, read directly by
+the script rather than by `CredentialResolver.psm1`:
+
+- **`KeyFilePath`** — path to a private key file, passed straight through to `New-SSHSession -KeyFile`. When set, SSH authenticates with this key rather than the resolved credential's password; the resolved credential's username is still used as the SSH login name (and its password, if any, as the key's passphrase). Omit for plain password authentication.
 
 > **Verify before production use.** The CP/CCP/Conjur helpers implement each product's publicly documented integration pattern, but exact details — CLI install path, the CCP web service's virtual directory name, supported query parameters, TLS/certificate requirements — vary by version and by how your environment is configured. Confirm every value against your own CyberArk deployment before relying on this for a production nightly run.
 

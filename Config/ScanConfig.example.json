@@ -23,6 +23,12 @@
       ],
       "IncludeGroupCategories": ["Security"],
       "ExcludeGroupNames": ["Domain Users", "Domain Computers", "*-Test-*"],
+      "Computers": {
+        "BaseOU": "OU=Servers,DC=fabrikam,DC=local",
+        "OUDepth": -1,
+        "NameFilter": ["SRV-*"],
+        "OSTypeFilter": ["Windows Server*"]
+      },
       "CredentialSource": "CCP",
       "CredentialParams": {
         "BaseUrl": "https://ccp.fabrikam.local",

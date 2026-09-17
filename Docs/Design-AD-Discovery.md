@@ -42,8 +42,8 @@ unavailable for the untrusted domains.
   only, matching AD's own model. A downstream tool that needs effective membership can walk nested
   groups itself using the groups file as the edge list — this keeps the export fast and keeps the
   group-nesting structure visible rather than flattening it away.
-- **No AD user inventory.** Only groups and their direct members are exported; a full user object
-  export was not requested and is out of scope.
+- **No AD user inventory.** Only groups/direct members and (opt-in, added 2026-09-17) computer
+  objects are exported; a full user object export was not requested and is out of scope.
 - **Read-only.** Nothing in this tool ever writes to AD.
 - **On-prem AD only.** Azure AD / Entra ID is not covered (see Open Decisions).
 
@@ -54,6 +54,8 @@ unavailable for the untrusted domains.
 - Per-domain scoping to a base OU and a maximum OU depth below it.
 - Per-domain credential source (`CurrentUser`, `PSCredential` file, `CP`, `CCP`, or `Conjur`).
 - CSV output of groups and of direct group→member pairs.
+- Opt-in per-domain computer object discovery, independently scoped from the group scan, filterable
+  by name and reported OS type (added 2026-09-17).
 
 **Non-functional**
 - Continue past a failed domain (log it, move on) rather than aborting the whole run.
@@ -73,7 +75,10 @@ Config (JSON)
            IncludeGroupScopes / ExcludeGroupNames → group rows
          Get-ADGroupMember (direct members) → member rows
            └─ falls back to raw 'member' DN resolution if Get-ADGroupMember errors
-Export-Csv → ADGroups.csv / ADGroupMembers.csv (+ timestamped Archive copy, retention-pruned)
+       if domain config has a 'Computers' block:
+         compute independent search bases (own BaseOU/OUDepth/ExcludeOUs)
+         Get-ADComputer -SearchScope OneLevel → filter by NameFilter / OSTypeFilter (inclusion) → computer rows
+Export-Csv → ADGroups.csv / ADGroupMembers.csv / ADComputers.csv (+ timestamped Archive copy, retention-pruned)
 ```
 
 **Filtering (added 2026-09-16).** `ExcludeOUs` is applied once per domain, against the already
@@ -102,6 +107,33 @@ from a trusted domain). When it does, the script falls back to resolving the gro
 DN list one object at a time via `Get-ADObject`, with a per-run cache so a member appearing in
 multiple groups (e.g. a commonly-nested admin group) is only resolved once.
 
+**Computer object discovery (added 2026-09-17).** Opt-in per domain — only runs when that domain's
+config entry has a `Computers` property, so an existing config written before this feature keeps
+behaving exactly as before. Deliberately **independently scoped** from the domain's own group scan
+(its own `BaseOU`/`OUDepth`/`ExcludeOUs`, reusing the same `Get-ScopedOrganizationalUnits` helper and
+`ExcludeOUs` suffix-match logic groups already use) rather than reusing the group scan's `BaseOU`,
+since computer objects are commonly organized under a different part of the tree than groups (e.g.
+`OU=Servers` vs. `OU=Groups`) — silently reusing the group scan's OU would likely miss most
+computers in a typical deployment. `NameFilter`/`OSTypeFilter` are **inclusion** filters (a computer
+must match at least one pattern in each that's set) — the opposite direction from `ExcludeGroupNames`
+— since "find computers matching X" is a search, not a noise-exclusion, the same way
+`Export-LocalGroups.ps1`'s `-ComputerFilter` parameter works. `ComputerName` strips the trailing `$`
+AD puts on every computer account's `SamAccountName` (kept verbatim in a separate `SamAccountName`
+column), since a downstream tool consuming this to seed something like `Export-LocalGroups.ps1`'s own
+`ComputersToScan.csv` wants a plain hostname, not a SAM account name. `LastLogonTimestamp` is
+converted from AD's raw replicated attribute to an actual date, but that attribute is intentionally
+imprecise (AD limits how often it replicates specifically to reduce replication traffic) — "roughly
+this stale," not exact.
+
+**Not tested against a live domain controller.** No RSAT `ActiveDirectory` module (or any AD
+environment) was available in the environment this was built in — the same situation the rest of
+this script was originally built under. The `Get-ADComputer` call, its properties
+(`DNSHostName`/`OperatingSystem`/`OperatingSystemVersion`/`LastLogonTimestamp`/`Enabled`), and
+`SamAccountName`'s trailing-`$` convention are all standard, long-documented AD schema/cmdlet
+behavior, not something obscure — but the surrounding logic (filter application, date conversion,
+name stripping) was only verified in isolation, not against a real domain. Verify with
+`-DomainFilter` against one domain before relying on this in production.
+
 ## 6. Security considerations
 
 - Credentials are resolved per domain at the point of use and never logged; only the *source*
@@ -123,6 +155,17 @@ multiple groups (e.g. a commonly-nested admin group) is only resolved once.
   separator — this covers the common case of a comma inside an OU/CN name, but is not a full LDAP
   DN parser.
 - No parallelism across domains — each is scanned sequentially.
+- **`OperatingSystem`/`OperatingSystemVersion` are self-reported and only periodically refreshed** —
+  a computer object can show a blank or stale OS value if the machine hasn't rejoined/refreshed
+  recently; `OSTypeFilter` matches against whatever is currently in AD, not the machine's real,
+  current state.
+- **`LastLogonTimestamp` is deliberately imprecise** — AD limits how often it replicates this
+  attribute to reduce replication traffic, so it's only accurate to within a few days, not a precise
+  last-logon time.
+- **Computer discovery has not been tested against a live domain controller** — no AD environment
+  was available while building it. The logic pieces (trailing-`$` stripping, date conversion, filter
+  matching) were verified in isolation; the actual `Get-ADComputer` call and its properties were not
+  exercised against a real domain.
 
 ## 8. Alternatives considered
 
@@ -142,6 +185,13 @@ multiple groups (e.g. a commonly-nested admin group) is only resolved once.
 - `ExcludeGroupNames` matches on `SamAccountName` only — should it also (or instead) support
   matching on `DistinguishedName`/OU-relative path, for cases where the same name could recur
   under different OUs but only one instance should be excluded?
+- Should `NameFilter`/`OSTypeFilter` also support an exclude-style variant (mirroring
+  `ExcludeGroupNames`), for "scan everything except..." rather than only "scan only matching..."?
+- Is defaulting the `Computers` block's `BaseOU` to the domain root (rather than, say, to the
+  domain entry's own `BaseOU`) the right default, given the whole reason for scoping it
+  independently is that computers usually live somewhere else in the tree?
+- Should computer discovery be validated against a live domain controller before being considered
+  production-ready, given it hasn't been tested against one yet (see Section 7)?
 
 ## 10. Revision log
 
@@ -149,3 +199,4 @@ multiple groups (e.g. a commonly-nested admin group) is only resolved once.
 |---|---|
 | 2026-09-16 | Initial version, documenting the as-built `Export-ADGroups.ps1`. |
 | 2026-09-16 | Added per-domain `ExcludeOUs`, `IncludeGroupCategories`, `IncludeGroupScopes`, and `ExcludeGroupNames` filters (Section 5, Section 9). |
+| 2026-09-17 | Added opt-in per-domain computer object discovery (`ADComputers.csv`), independently scoped from the group scan's own OU settings, with inclusion-style `NameFilter`/`OSTypeFilter`. Verified the pure logic pieces (trailing-`$` stripping, `LastLogonTimestamp` date conversion, filter matching) in isolation; the `Get-ADComputer` call itself was not tested against a live domain controller, since none was available. |

@@ -2,6 +2,8 @@
 Config/ScanConfig.json
 Config/LocalScanConfig.json
 Config/ComputersToScan.csv
+Config/LinuxScanConfig.json
+Config/LinuxComputersToScan.csv
 
 # Runtime output
 Output/

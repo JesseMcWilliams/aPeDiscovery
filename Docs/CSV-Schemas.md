@@ -36,6 +36,31 @@ Direct members only — nested groups are **not** expanded. One row per (group, 
 | MemberSID | Member's SID. |
 | MemberObjectClass | e.g. `user`, `group`, `computer`, `foreignSecurityPrincipal`. |
 
+## ADComputers.csv (Export-ADGroups.ps1)
+
+One row per AD computer object found. Only produced for domains whose config entry has a
+`Computers` block (see [Configuration.md](Configuration.md#computer-object-discovery-computers)) —
+empty (no rows, but the file is still written) for domains without one, and the file itself is only
+meaningful when at least one domain in the config opts in.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| DomainName | From the config entry's `DomainName`. |
+| ComputerName | The computer's `sAMAccountName` with its trailing `$` stripped (e.g. `SRV-APP01`, not `SRV-APP01$`) — what `NameFilter` matches against, and a directly usable hostname. |
+| SamAccountName | The raw `sAMAccountName`, `$` included, for exact AD identity fidelity. |
+| DNSHostName | AD's `dNSHostName` attribute (the computer's FQDN, e.g. `srv-app01.contoso.com`) — typically the most useful value for actually connecting to it. Can be blank if never populated. |
+| DistinguishedName | Full DN of the computer object. |
+| ObjectGUID | AD objectGUID. |
+| SID | Computer's SID. |
+| Enabled | `True`/`False` — the AD account-enabled state of the computer object itself (not whether the machine is powered on). |
+| OperatingSystem | AD's `operatingSystem` attribute — self-reported by the computer at domain-join time, refreshed only periodically. Can be blank or stale; not a live fact. What `OSTypeFilter` matches against. |
+| OperatingSystemVersion | AD's `operatingSystemVersion` attribute — same caveats as `OperatingSystem`. |
+| Description | AD `description` attribute. |
+| LastLogonTimestamp | Converted from AD's replicated `lastLogonTimestamp` attribute to an actual date. This attribute is intentionally imprecise (AD only replicates it every few days, to limit replication traffic) — treat it as "roughly this recently," not exact, and useful mainly for spotting computer objects that look long-stale. Blank if never set. |
+| WhenCreated / WhenChanged | AD timestamps. |
+| ParentOU | DN of the OU the computer was found directly under. |
+
 ## LocalUsers.csv (Export-LocalGroups.ps1)
 
 | Column | Description |
@@ -169,7 +194,84 @@ classification that put a row here is a naming convention, not proof, this file 
 a downstream validation step needs to confirm or refute. Empty when no service on any scanned
 computer runs as an account matching that convention.
 
+## LinuxLocalUsers.csv (Export-LocalLinuxGroups.ps1)
+
+Entirely separate from `LocalUsers.csv` — no shared filename, no shared schema (UID/GID instead of
+SID, no `Description`/`Disabled` boolean the same way Windows has them). Sourced from `/etc/passwd`
+plus a `sudo`-derived `/etc/shadow` projection.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| UserName | `/etc/passwd` field 1. |
+| UID | `/etc/passwd` field 3. |
+| PrimaryGID | `/etc/passwd` field 4. |
+| Description | `/etc/passwd` field 5 (the GECOS field). |
+| HomeDirectory | `/etc/passwd` field 6. |
+| Shell | `/etc/passwd` field 7. |
+| PasswordState | One of `PasswordSet`, `PasswordSetButLocked`, `LockedNoHash`, `NeverSet`, `SystemNoLogin`, `SystemNoLoginLocked`, `Unknown` — classified from `/etc/shadow` field 2's shape (real hash, `!`-prefixed hash, bare `!`, `!!`, `*`, `!*`). Blank when the connecting account has no usable `sudo` access to read `/etc/shadow` at all (a warning is logged for that computer, not an error — the rest of the scan still succeeds). |
+| PasswordLastSet | `/etc/shadow` field 3 (days since the Unix epoch), converted to a date locally. Blank under the same conditions as `PasswordState`, or when the field itself is empty. |
+| PasswordNeverExpires | `True` when `/etc/shadow` field 4 (max password age) is empty or the standard shadow-utils "effectively never" sentinel (≥ 99999 days); `False` when it's a smaller real number; blank under the same conditions as `PasswordState`. |
+
+## LinuxLocalGroups.csv (Export-LocalLinuxGroups.ps1)
+
+Sourced from `/etc/group`. There is no Linux equivalent of Windows' group `Description` — the field
+simply doesn't exist in `/etc/group`, not a gap in what's collected.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| GroupName | `/etc/group` field 1. |
+| GID | `/etc/group` field 3. |
+
+## LinuxLocalGroupMembers.csv (Export-LocalLinuxGroups.ps1)
+
+Direct, explicit members only — `/etc/group` field 4. A user whose *primary* GID matches a group but
+who isn't also listed explicitly in that group's member list will not appear here, the same
+documented parity limitation `LocalGroupMembers.csv` has on the Windows side.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| GroupName | `/etc/group` field 1. |
+| GID | `/etc/group` field 3. |
+| MemberName | One entry from `/etc/group` field 4's comma-separated member list. |
+
+## LinuxSudoRights.csv (Export-LocalLinuxGroups.ps1)
+
+One row per discovered account (from `LinuxLocalUsers.csv`) per computer — every account gets a row,
+not just ones with sudo access, so absence of a row is never mistaken for "no access" (it means the
+scan couldn't produce this file at all, e.g. the whole computer failed). Collected via one remote
+`sudo -n -l -U <user>` call per account, looped in a single SSH command per computer rather than one
+round trip per account. Requires the *connecting* account to have broad (`ALL`) sudo rights on the
+target — an account with only a narrow sudo grant of its own will likely be unable to list *other*
+accounts' rights at all, and every row on that computer will read `Unknown`.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| UserName | The account this row's sudo check was run for. |
+| SudoAccess | `None` (no matching sudoers rule at all), `PasswordlessSomeOrAll` (at least one `NOPASSWD` rule), `PasswordRequired` (rule(s) exist, none are `NOPASSWD`), or `Unknown` (output didn't match a recognized pattern — e.g. the connecting account itself lacks the broad sudo rights this check needs). |
+| RawSudoListOutput | The full text `sudo -n -l -U <user>` returned for this account, since (confirmed live) an account can hold multiple distinct rules at once — e.g. a broad password-required group rule *plus* a narrow account-specific grant — that a single flag would flatten away. |
+
+## LinuxScanErrors.csv (Export-LocalLinuxGroups.ps1)
+
+Same shape and purpose as `LocalScanErrors.csv` — one row per computer that failed (after exhausting
+`RetryCount` retries) during this run, at most one row per computer, empty when every enabled
+computer succeeded.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| ErrorMessage | The exception message from the final failed attempt (e.g. "Port 22 (SSH) is not reachable..."). Never includes credential secrets. |
+
 ## Design notes
 
-- Both scripts write a stable, fixed-name set of CSVs into `OutputDirectory` (overwritten each run) so a downstream import tool always reads the same path, plus a timestamped copy in `Archive` for history/troubleshooting (count controlled by `ArchiveRetentionCount`).
-- Membership is captured as **direct members only** in both scripts, matching AD's own model. A downstream tool that needs effective/recursive membership can walk the groups file itself using the membership file as edges.
+- All three scripts write a stable, fixed-name set of CSVs into `OutputDirectory` (overwritten each run) so a downstream import tool always reads the same path, plus a timestamped copy in `Archive` for history/troubleshooting (count controlled by `ArchiveRetentionCount`).
+- Membership is captured as **direct members only** in all three scripts, matching AD's/`/etc/group`'s own model. A downstream tool that needs effective/recursive membership can walk the groups file itself using the membership file as edges.
+- The Linux output files are entirely separate from the Windows ones — no shared filenames, no `Platform` column, no unified schema. The column sets were never identical anyway (UID/GID vs. SID; Linux groups have no `Description` at all), so this avoids a wider shared schema full of platform-specific blanks.

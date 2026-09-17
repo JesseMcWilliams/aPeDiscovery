@@ -11,7 +11,8 @@
 .OUTPUTS
     <OutputDirectory>\ADGroups.csv
     <OutputDirectory>\ADGroupMembers.csv
-    Timestamped copies of both are kept under <OutputDirectory>\Archive.
+    <OutputDirectory>\ADComputers.csv (only when at least one domain has a Computers block configured)
+    Timestamped copies are kept under <OutputDirectory>\Archive.
 .NOTES
     Exit code 0 = every enabled domain succeeded. Exit code 1 = at least one
     domain failed (see the ERROR lines in the log); other domains still ran.
@@ -21,6 +22,18 @@
     (only Security/Distribution, or only DomainLocal/Global/Universal groups),
     and ExcludeGroupNames (exact names or wildcard patterns, matched against
     SamAccountName). See Docs\Configuration.md.
+
+    Computer object discovery is opt-in per domain: only runs when that domain's
+    config entry has a 'Computers' property (even an empty object enables it with
+    defaults). It has its own independent BaseOU/OUDepth/ExcludeOUs - separate
+    from the group scan's, since computers and groups are commonly organized
+    under different parts of the tree - plus NameFilter and OSTypeFilter
+    (wildcard patterns; a computer is included only if it matches at least one
+    pattern in each filter that's set). OSTypeFilter matches AD's own
+    'operatingSystem' attribute, which a computer sets itself at domain-join
+    time and only refreshes periodically - it can be blank or stale, not a
+    live, verified fact about what's actually running today. See
+    Docs\Configuration.md.
 #>
 [CmdletBinding()]
 param(
@@ -52,6 +65,7 @@ Write-DiscoveryLog -LogPath $logPath -Message "Starting AD group export using co
 $scanTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
 $groupRows = [System.Collections.Generic.List[object]]::new()
 $memberRows = [System.Collections.Generic.List[object]]::new()
+$computerRows = [System.Collections.Generic.List[object]]::new()
 $hadFailures = $false
 
 foreach ($domain in $config.Domains) {
@@ -200,6 +214,74 @@ foreach ($domain in $config.Domains) {
         }
 
         Write-DiscoveryLog -LogPath $logPath -Message "Completed scan of domain '$($domain.DomainName)': $domainGroupCount group(s) exported, $domainFilteredGroupCount skipped by IncludeGroupCategories/IncludeGroupScopes/ExcludeGroupNames filters."
+
+        if ($domain.PSObject.Properties['Computers']) {
+            $computerConfig = $domain.Computers
+
+            $computerBaseOU = if ($computerConfig.BaseOU) { $computerConfig.BaseOU } else { (Get-ADDomain @adParams).DistinguishedName }
+            $computerOuDepth = if ($null -ne $computerConfig.OUDepth) { [int]$computerConfig.OUDepth } else { -1 }
+            $computerSearchBases = Get-ScopedOrganizationalUnits -BaseOU $computerBaseOU -Depth $computerOuDepth -AdParams $adParams
+
+            $computerExcludeOUs = if ($computerConfig.ExcludeOUs) { @($computerConfig.ExcludeOUs) } else { @() }
+            if ($computerExcludeOUs.Count -gt 0) {
+                $computerSearchBases = @($computerSearchBases | Where-Object {
+                    $candidateOU = $_
+                    -not ($computerExcludeOUs | Where-Object { $candidateOU -eq $_ -or $candidateOU -like "*,$_" })
+                })
+            }
+
+            $computerNameFilter = if ($computerConfig.NameFilter) { @($computerConfig.NameFilter) } else { @() }
+            $osTypeFilter = if ($computerConfig.OSTypeFilter) { @($computerConfig.OSTypeFilter) } else { @() }
+
+            Write-DiscoveryLog -LogPath $logPath -Message "Domain '$($domain.DomainName)': scanning $($computerSearchBases.Count) OU(s) under '$computerBaseOU' for computer objects (depth $computerOuDepth)."
+
+            $domainComputerCount = 0
+            $domainFilteredComputerCount = 0
+
+            foreach ($ou in $computerSearchBases) {
+                $computers = Get-ADComputer -SearchBase $ou -SearchScope OneLevel -Filter * `
+                    -Properties Description, DNSHostName, OperatingSystem, OperatingSystemVersion, Enabled, LastLogonTimestamp, whenCreated, whenChanged @adParams
+
+                foreach ($adComputer in $computers) {
+                    $computerName = $adComputer.SamAccountName -replace '\$$', ''
+
+                    if ($computerNameFilter.Count -gt 0 -and -not ($computerNameFilter | Where-Object { $computerName -like $_ })) {
+                        $domainFilteredComputerCount++
+                        continue
+                    }
+                    if ($osTypeFilter.Count -gt 0 -and -not ($osTypeFilter | Where-Object { $adComputer.OperatingSystem -like $_ })) {
+                        $domainFilteredComputerCount++
+                        continue
+                    }
+
+                    $domainComputerCount++
+                    $lastLogon = try {
+                        if ($adComputer.LastLogonTimestamp) { [DateTime]::FromFileTime($adComputer.LastLogonTimestamp) } else { $null }
+                    } catch { $null }
+
+                    $computerRows.Add([pscustomobject]@{
+                        ScanTimestamp        = $scanTimestamp
+                        DomainName           = $domain.DomainName
+                        ComputerName         = $computerName
+                        SamAccountName       = $adComputer.SamAccountName
+                        DNSHostName          = $adComputer.DNSHostName
+                        DistinguishedName    = $adComputer.DistinguishedName
+                        ObjectGUID           = $adComputer.ObjectGUID
+                        SID                  = $adComputer.SID.Value
+                        Enabled              = $adComputer.Enabled
+                        OperatingSystem      = $adComputer.OperatingSystem
+                        OperatingSystemVersion = $adComputer.OperatingSystemVersion
+                        Description          = $adComputer.Description
+                        LastLogonTimestamp   = $lastLogon
+                        WhenCreated          = $adComputer.whenCreated
+                        WhenChanged          = $adComputer.whenChanged
+                        ParentOU             = $ou
+                    })
+                }
+            }
+
+            Write-DiscoveryLog -LogPath $logPath -Message "Completed computer scan of domain '$($domain.DomainName)': $domainComputerCount computer(s) exported, $domainFilteredComputerCount skipped by NameFilter/OSTypeFilter."
+        }
     } catch {
         $hadFailures = $true
         Write-DiscoveryLog -Level ERROR -LogPath $logPath -Message "Domain '$($domain.DomainName)' failed: $($_.Exception.Message)"
@@ -209,20 +291,24 @@ foreach ($domain in $config.Domains) {
 
 $groupsCsvPath = Join-Path $config.OutputDirectory 'ADGroups.csv'
 $membersCsvPath = Join-Path $config.OutputDirectory 'ADGroupMembers.csv'
+$computersCsvPath = Join-Path $config.OutputDirectory 'ADComputers.csv'
 $groupRows | Export-Csv -Path $groupsCsvPath -NoTypeInformation -Encoding UTF8
 $memberRows | Export-Csv -Path $membersCsvPath -NoTypeInformation -Encoding UTF8
+$computerRows | Export-Csv -Path $computersCsvPath -NoTypeInformation -Encoding UTF8
 
 $archiveDirectory = Join-Path $config.OutputDirectory 'Archive'
 New-Item -ItemType Directory -Path $archiveDirectory -Force | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 Copy-Item -Path $groupsCsvPath -Destination (Join-Path $archiveDirectory "ADGroups_$stamp.csv")
 Copy-Item -Path $membersCsvPath -Destination (Join-Path $archiveDirectory "ADGroupMembers_$stamp.csv")
+Copy-Item -Path $computersCsvPath -Destination (Join-Path $archiveDirectory "ADComputers_$stamp.csv")
 
 $retentionCount = if ($config.ArchiveRetentionCount) { [int]$config.ArchiveRetentionCount } else { 30 }
-Get-ChildItem -Path $archiveDirectory -Filter 'ADGroups_*.csv' | Sort-Object LastWriteTime -Descending | Select-Object -Skip $retentionCount | Remove-Item -Force
-Get-ChildItem -Path $archiveDirectory -Filter 'ADGroupMembers_*.csv' | Sort-Object LastWriteTime -Descending | Select-Object -Skip $retentionCount | Remove-Item -Force
+foreach ($prefix in 'ADGroups', 'ADGroupMembers', 'ADComputers') {
+    Get-ChildItem -Path $archiveDirectory -Filter "$prefix`_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -Skip $retentionCount | Remove-Item -Force
+}
 
-Write-DiscoveryLog -LogPath $logPath -Message "Export complete. Groups: $($groupRows.Count), membership rows: $($memberRows.Count). Output: '$groupsCsvPath', '$membersCsvPath'."
+Write-DiscoveryLog -LogPath $logPath -Message "Export complete. Groups: $($groupRows.Count), membership rows: $($memberRows.Count), computers: $($computerRows.Count). Output: '$groupsCsvPath', '$membersCsvPath', '$computersCsvPath'."
 
 if ($hadFailures) {
     Write-DiscoveryLog -Level WARN -LogPath $logPath -Message 'One or more domains failed; see ERROR entries above.'

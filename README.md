@@ -14,7 +14,10 @@ identity.
   domains for groups (optionally scoped to a base OU and OU depth, with
   optional per-domain `ExcludeOUs`/`IncludeGroupCategories`/
   `IncludeGroupScopes`/`ExcludeGroupNames` filters), and writes
-  `ADGroups.csv` / `ADGroupMembers.csv`.
+  `ADGroups.csv` / `ADGroupMembers.csv`. Also supports opt-in per-domain
+  computer object discovery (a `Computers` config block, independently scoped
+  from the group scan, filterable by `NameFilter`/`OSTypeFilter`), writing
+  `ADComputers.csv`.
 - **Export-LocalGroups.ps1** — reads a list of computers from
   `Config\ComputersToScan.csv` (each row can point at a different credential
   source), scans them concurrently (throttled by `MaxConcurrency`, with a
@@ -34,8 +37,22 @@ identity.
   (only `Listening = True` rows) and `LocalGmsaServiceAccounts.csv` (only
   `AccountType = LikelyGmsaOrMsa` rows, meant to feed a downstream AD
   cross-reference that flags any account not actually a real gMSA/MSA).
+- **Export-LocalLinuxGroups.ps1** — reads a list of computers from
+  `Config\LinuxComputersToScan.csv` (password or key-based SSH auth per row,
+  resolved via the same `CredentialResolver.psm1`, plus an optional
+  `KeyFilePath`), scans them concurrently over SSH (`Posh-SSH`, throttled by
+  `MaxConcurrency`, same `RunspacePool` design as `Export-LocalGroups.ps1`,
+  with a TCP-22 reachability check), and writes `LinuxLocalUsers.csv` /
+  `LinuxLocalGroups.csv` / `LinuxLocalGroupMembers.csv` / `LinuxSudoRights.csv`
+  (every discovered account's sudo access —
+  `None`/`PasswordlessSomeOrAll`/`PasswordRequired` — plus the full rule text)
+  / `LinuxScanErrors.csv`. Local users also get `PasswordState`/
+  `PasswordLastSet`/`PasswordNeverExpires` when the connecting account has
+  usable `sudo` access (left blank otherwise, rather than failing the scan).
+  Linux output is entirely separate from the Windows tool's files — no shared
+  filenames or schema.
 
-Both scripts:
+All three scripts:
 - take direct membership only (no recursive/nested-group expansion — the
   downstream tool can walk nesting itself using the groups + members files);
 - continue past a failed domain/computer, log the error, and exit `1` at the
@@ -44,18 +61,20 @@ Both scripts:
   timestamped copy under `Output\Archive` for history, with a configurable
   retention count.
 
-See [Docs/CSV-Schemas.md](Docs/CSV-Schemas.md) for exact column layouts and
+See [Docs/CSV-Schemas.md](Docs/CSV-Schemas.md) for exact column layouts,
 [Docs/Configuration.md](Docs/Configuration.md) for every config/credential
-option.
+option, and [Docs/Testing-Guide.md](Docs/Testing-Guide.md) for step-by-step
+validation procedures for every feature.
 
 ## Design documents
 
 - [Docs/Design-AD-Discovery.md](Docs/Design-AD-Discovery.md) — implemented.
 - [Docs/Design-Local-Windows-Discovery.md](Docs/Design-Local-Windows-Discovery.md) — implemented.
-- [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md) — proposed, not yet
-  built. Connectivity is decided (`Posh-SSH`, verified live); still open: shared vs. separate
-  input/output files with the Windows tool, default host-key trust policy, and validation against a
-  real SSH target (none was available in this environment).
+- [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md) — connectivity,
+  concurrency, users/groups/membership, password-state fields, and sudo rights discovery are
+  implemented and verified live against a real Ubuntu VM. Database/software/service-account
+  detection (Phase 5), `BadPasswordAttempts`, and per-account SSH-login eligibility are designed but
+  not yet built.
 
 ## Prerequisites
 
@@ -70,6 +89,14 @@ option.
   Groups" snap-in needs against a remote machine) rather than WinRM. It scans
   computers concurrently via a `RunspacePool` (no extra module dependency,
   works on both PowerShell 5.1 and 7+), throttled by `MaxConcurrency`.
+- **Export-LocalLinuxGroups.ps1** requires the `Posh-SSH` PowerShell module
+  (`Install-Module Posh-SSH`) on the host running it, and SSH (port 22)
+  connectivity to each target. It scans computers concurrently via the same
+  kind of `RunspacePool` as `Export-LocalGroups.ps1`, throttled by
+  `MaxConcurrency`. Sudo-derived fields (`PasswordState`/`PasswordLastSet`/
+  `PasswordNeverExpires`, and any sudo rights beyond "no access") need the
+  connecting account to have usable `sudo` rights on the target; without it,
+  those fields/rows are simply left blank rather than failing the scan.
 - For `CP`/`CCP`/`Conjur` credential sources: the relevant CyberArk client
   component installed/reachable from the host running the scripts (the
   Credential Provider for `CP`, network access to the CCP web service for
@@ -82,43 +109,53 @@ option.
 2. Copy `Config\ComputersToScan.example.csv` to `Config\ComputersToScan.csv`
    and `Config\LocalScanConfig.example.json` to
    `Config\LocalScanConfig.json`, and edit both.
-3. Run a single domain/computer first to validate credentials before scanning
+3. For Linux targets, copy `Config\LinuxComputersToScan.example.csv` to
+   `Config\LinuxComputersToScan.csv` and `Config\LinuxScanConfig.example.json`
+   to `Config\LinuxScanConfig.json`, and edit both.
+4. Run a single domain/computer first to validate credentials before scanning
    everything:
    ```powershell
    .\Export-ADGroups.ps1 -DomainFilter 'contoso.com'
    .\Export-LocalGroups.ps1 -ComputerFilter 'SRV-APP01'
+   .\Export-LocalLinuxGroups.ps1 -ComputerFilter 'lnx-app01.contoso.com'
    ```
-4. Once validated, wire both scripts into Scheduled Tasks — see
+5. Once validated, wire the scripts into Scheduled Tasks — see
    [Docs/Scheduled-Task-Setup.md](Docs/Scheduled-Task-Setup.md).
 
 ## Repository layout
 
 ```
-Export-ADGroups.ps1        Domain group + membership export
-Export-LocalGroups.ps1     Per-computer local user/group/membership discovery
+Export-ADGroups.ps1            Domain group + membership export
+Export-LocalGroups.ps1         Per-computer local Windows user/group/membership discovery
+Export-LocalLinuxGroups.ps1    Per-computer local Linux user/group/membership/sudo-rights discovery
 Modules\
-  CredentialResolver.psm1     CurrentUser / PSCredential / CP / CCP / Conjur resolution
-  ADHelpers.psm1              OU-depth-scoped search helper
-  Logging.psm1                Shared timestamped file+console logging (thread-safe)
-  NetworkHelpers.psm1         TCP-connect reachability probe
-  LocalComputerScanner.psm1   Per-computer local user/group/membership scan (run in a runspace pool)
+  CredentialResolver.psm1        CurrentUser / PSCredential / CP / CCP / Conjur resolution
+  ADHelpers.psm1                 OU-depth-scoped search helper
+  Logging.psm1                   Shared timestamped file+console logging (thread-safe)
+  NetworkHelpers.psm1            TCP-connect reachability probe
+  LocalComputerScanner.psm1      Per-computer local Windows scan (run in a runspace pool)
+  LocalLinuxComputerScanner.psm1 Per-computer local Linux scan over SSH (run in a runspace pool)
 Config\
-  ScanConfig.example.json          Template for Export-ADGroups.ps1
-  ComputersToScan.example.csv      Template for Export-LocalGroups.ps1 input
-  LocalScanConfig.example.json     Template for Export-LocalGroups.ps1 run settings
+  ScanConfig.example.json                Template for Export-ADGroups.ps1
+  ComputersToScan.example.csv            Template for Export-LocalGroups.ps1 input
+  LocalScanConfig.example.json           Template for Export-LocalGroups.ps1 run settings
+  LinuxComputersToScan.example.csv       Template for Export-LocalLinuxGroups.ps1 input
+  LinuxScanConfig.example.json           Template for Export-LocalLinuxGroups.ps1 run settings
 Docs\
   Configuration.md                     Full config/credential-source reference
   CSV-Schemas.md                       Output column reference
   Scheduled-Task-Setup.md              Unattended scheduling guidance
+  Testing-Guide.md                     Step-by-step validation procedures for every feature
   Design-AD-Discovery.md               Design doc - AD group export (implemented)
   Design-Local-Windows-Discovery.md    Design doc - local Windows discovery (implemented)
-  Design-Local-Linux-Discovery.md      Design doc - local Linux discovery (proposed)
+  Design-Local-Linux-Discovery.md      Design doc - local Linux discovery (mostly implemented)
 Output\                     Default (gitignored) output/log/archive location
 ```
 
-`Config\*.json` and `Config\ComputersToScan.csv` (the real, non-`.example`
-files) are gitignored since they carry real domain/computer names and
-credential-source parameters — commit only the `.example` templates.
+`Config\*.json` and `Config\ComputersToScan.csv`/`Config\LinuxComputersToScan.csv`
+(the real, non-`.example` files) are gitignored since they carry real
+domain/computer names and credential-source parameters — commit only the
+`.example` templates.
 
 ## Known limitations / things to verify for your environment
 
@@ -135,6 +172,14 @@ credential-source parameters — commit only the `.example` templates.
 - **DN parsing for OU depth** treats a comma preceded by `\` as an escaped
   literal rather than a component separator, which covers the common case of
   commas inside OU/CN names but is not a full LDAP DN parser.
+- **Computer object discovery** (`ADComputers.csv`, opt-in via a `Computers`
+  block per domain) reports AD's `operatingSystem`/`operatingSystemVersion`
+  and `lastLogonTimestamp` attributes as-is — these are self-reported and only
+  periodically refreshed/replicated by AD itself, not live facts about what's
+  actually running or when a machine was last used. This feature also hasn't
+  been tested against a live domain controller (no AD environment was
+  available while building it) — verify with `-DomainFilter` against one
+  domain before relying on it.
 - `Export-ADGroups.ps1` still scans domains sequentially (no concurrency).
   `Export-LocalGroups.ps1` scans computers concurrently via `MaxConcurrency`,
   but launches one `PowerShell` instance per computer up front rather than
@@ -176,3 +221,14 @@ credential-source parameters — commit only the `.example` templates.
   `ApiKeyPath`/`CredentialFilePath` files, and file-system ACLs on
   `Config\`/`Output\`/any secrets directory are the operator's
   responsibility — this project does not manage those.
+- **`Export-LocalLinuxGroups.ps1` does not yet detect databases/software/service
+  accounts** (the Windows tool's `LocalDatabases.csv`/`LocalSoftware.csv`/
+  `LocalServiceAccounts.csv` equivalents) or per-account SSH-login eligibility,
+  and does not collect `BadPasswordAttempts` — all four are designed (see
+  [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md))
+  but not yet built. **`LinuxSudoRights.csv`'s `PasswordRequired` classification
+  is implemented but not fully verified** — no test account with a genuinely
+  password-required (not `NOPASSWD`) sudo rule has been available to confirm it
+  against. Any account's sudo-derived fields require the *connecting* account
+  to have broad (`ALL`) sudo rights on the target; without it, those fields are
+  left blank rather than failing the scan.
