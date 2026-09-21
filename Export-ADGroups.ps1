@@ -45,7 +45,7 @@ $ErrorActionPreference = 'Stop'
 
 Import-Module ActiveDirectory -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Modules\Logging.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot 'Modules\CredentialResolver.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '..\aPeSecrets\Modules\CredentialResolver.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Modules\ADHelpers.psm1') -Force
 
 if (-not (Test-Path -Path $ConfigPath)) {
@@ -84,7 +84,7 @@ foreach ($domain in $config.Domains) {
         if ($domain.CredentialParams) {
             $domain.CredentialParams.PSObject.Properties | ForEach-Object { $credentialParams[$_.Name] = $_.Value }
         }
-        $credential = Get-DiscoveryCredential -Source $domain.CredentialSource -Params $credentialParams -LogPath $logPath
+        $credential = Get-ResolvedCredential -Source $domain.CredentialSource -Params $credentialParams -LogPath $logPath
 
         $adParams = @{ Server = if ($domain.Server) { $domain.Server } else { $domain.DomainName } }
         if ($credential) { $adParams.Credential = $credential }

@@ -138,7 +138,7 @@ function Invoke-LocalComputerScan {
         recognized by name. The gMSA/MSA classification is a naming-convention heuristic (a trailing
         '$'), not an authoritative AD lookup.
     .NOTES
-        Never logs the resolved credential's password - only Get-DiscoveryCredential's source and
+        Never logs the resolved credential's password - only Get-ResolvedCredential's source and
         outcome are observable via the log.
     #>
     [CmdletBinding()]
@@ -195,7 +195,7 @@ function Invoke-LocalComputerScan {
                 throw "Port 445 (SMB/RPC) is not reachable; skipping. Verify the computer is online and that port 445 is not blocked from this host."
             }
 
-            $credential = Get-DiscoveryCredential -Source $CredentialSource -Params $CredentialParams -LogPath $LogPath
+            $credential = Get-ResolvedCredential -Source $CredentialSource -Params $CredentialParams -LogPath $LogPath
 
             if ($credential) {
                 $computerEntry = New-Object System.DirectoryServices.DirectoryEntry(

@@ -18,8 +18,12 @@
     <OutputDirectory>\LinuxLocalGroups.csv
     <OutputDirectory>\LinuxLocalGroupMembers.csv
     <OutputDirectory>\LinuxSudoRights.csv
+    <OutputDirectory>\LinuxDatabases.csv
+    <OutputDirectory>\LinuxSoftware.csv
+    <OutputDirectory>\LinuxServiceAccounts.csv
+    <OutputDirectory>\LinuxUnrecognizedListeningPorts.csv
     <OutputDirectory>\LinuxScanErrors.csv
-    Timestamped copies of all five are kept under <OutputDirectory>\Archive.
+    Timestamped copies of all nine are kept under <OutputDirectory>\Archive.
 .NOTES
     Connects over SSH using the Posh-SSH module (New-SSHSession/Invoke-SSHCommand/
     Remove-SSHSession) - chosen over plink.exe per project direction, and verified
@@ -44,12 +48,32 @@
     no hang) and those fields/rows are simply left blank/None rather than causing
     the scan to fail - see Modules\LocalLinuxComputerScanner.psm1.
 
-    This is a first implementation covering Phase 1-4 of
-    Docs\Design-Local-Linux-Discovery.md (connectivity, users/groups/membership,
-    password-aging fields, sudo rights). Phase 5 (LinuxDatabases.csv/
-    LinuxSoftware.csv/LinuxServiceAccounts.csv) and per-account SSH login
-    eligibility are designed but not yet implemented - see the design doc's
-    Progress Tracker for what's left.
+    Sudo elevation itself (echo | sudo -S, a single ticket-refresh call per computer
+    rather than once per account) is automatic whenever a sudo password is
+    resolvable - see Modules\LocalLinuxComputerScanner.psm1 and
+    Docs\Configuration.md's "Sudo-dependent fields and elevation" section for the
+    SudoCredentialSource/SudoCredentialParams config needed for key-based auth.
+
+    Database/software detection matches systemd unit names against
+    DatabaseSignatures/SoftwareSignatures (same two-list shape as
+    Export-LocalGroups.ps1's Windows equivalent, UnitPattern instead of
+    ServicePattern) - DatabaseSignatures defaults to
+    Get-DefaultLinuxDatabaseSignatures (PostgreSQL verified live; MySQL/MariaDB/
+    MongoDB are unverified starter guesses) if not set in config;
+    SoftwareSignatures has no built-in default, same as the Windows tool.
+    LinuxServiceAccounts.csv considers every registered service, not just
+    signature matches, resolving the real running account via the unit's MainPID
+    cross-referenced against a live process list (not systemd's own User=
+    property alone, which under-reports for wrapper processes that drop
+    privileges internally - see Design doc Section 6b). A single `ss -tlnp`
+    capture per computer (reusing the same sudo elevation, no extra mechanism
+    needed) both confirms whether a signature-matched port is actually listening
+    and, for any listening port matching no configured signature at all, produces
+    a LinuxUnrecognizedListeningPorts.csv row.
+
+    This covers Phase 1-5 of Docs\Design-Local-Linux-Discovery.md. Still
+    design-only: per-account SSH login eligibility and BadPasswordAttempts - see
+    the design doc's Progress Tracker for what's left.
 
     Exit code 0 = every enabled computer succeeded. Exit code 1 = at least one
     computer failed (see the ERROR lines in the log, or LinuxScanErrors.csv);
@@ -69,7 +93,7 @@ if (-not (Get-Module -ListAvailable -Name Posh-SSH)) {
 }
 
 $loggingModulePath = Join-Path $PSScriptRoot 'Modules\Logging.psm1'
-$credentialModulePath = Join-Path $PSScriptRoot 'Modules\CredentialResolver.psm1'
+$credentialModulePath = Join-Path $PSScriptRoot '..\aPeSecrets\Modules\CredentialResolver.psm1'
 $networkModulePath = Join-Path $PSScriptRoot 'Modules\NetworkHelpers.psm1'
 $scannerModulePath = Join-Path $PSScriptRoot 'Modules\LocalLinuxComputerScanner.psm1'
 $poshSshModulePath = (Get-Module -ListAvailable -Name Posh-SSH | Select-Object -First 1).Path
@@ -101,6 +125,8 @@ $commandTimeoutSeconds = if ($config.CommandTimeoutSeconds) { [int]$config.Comma
 $acceptNewHostKey = if ($null -ne $config.AcceptNewHostKey) { [bool]$config.AcceptNewHostKey } else { $true }
 $retryCount = if ($config.RetryCount) { [int]$config.RetryCount } else { 0 }
 $retryDelaySeconds = if ($config.RetryDelaySeconds) { [int]$config.RetryDelaySeconds } else { 5 }
+$databaseSignatures = if ($config.DatabaseSignatures) { @($config.DatabaseSignatures) } else { @(Get-DefaultLinuxDatabaseSignatures) }
+$softwareSignatures = if ($config.SoftwareSignatures) { @($config.SoftwareSignatures) } else { @() }
 
 Write-DiscoveryLog -LogPath $logPath -Message "Starting Linux local discovery export using computers list '$ComputersCsvPath' (MaxConcurrency=$maxConcurrency)."
 
@@ -111,6 +137,10 @@ $userRows = [System.Collections.Generic.List[object]]::new()
 $groupRows = [System.Collections.Generic.List[object]]::new()
 $memberRows = [System.Collections.Generic.List[object]]::new()
 $sudoRightsRows = [System.Collections.Generic.List[object]]::new()
+$databaseRows = [System.Collections.Generic.List[object]]::new()
+$softwareRows = [System.Collections.Generic.List[object]]::new()
+$serviceAccountRows = [System.Collections.Generic.List[object]]::new()
+$unrecognizedListeningPortRows = [System.Collections.Generic.List[object]]::new()
 $scanErrorRows = [System.Collections.Generic.List[object]]::new()
 $hadFailures = $false
 
@@ -161,6 +191,8 @@ try {
             AcceptNewHostKey          = $acceptNewHostKey
             RetryCount                = $retryCount
             RetryDelaySeconds         = $retryDelaySeconds
+            DatabaseSignatures        = $databaseSignatures
+            SoftwareSignatures        = $softwareSignatures
         })
 
         $jobs.Add([pscustomobject]@{
@@ -193,6 +225,10 @@ try {
                 foreach ($g in $result.GroupRows) { $groupRows.Add($g) }
                 foreach ($m in $result.MemberRows) { $memberRows.Add($m) }
                 foreach ($s in $result.SudoRightsRows) { $sudoRightsRows.Add($s) }
+                foreach ($d in $result.DatabaseRows) { $databaseRows.Add($d) }
+                foreach ($sw in $result.SoftwareRows) { $softwareRows.Add($sw) }
+                foreach ($sa in $result.ServiceAccountRows) { $serviceAccountRows.Add($sa) }
+                foreach ($ulp in $result.UnrecognizedListeningPortRows) { $unrecognizedListeningPortRows.Add($ulp) }
             } else {
                 $hadFailures = $true
                 $scanErrorRows.Add([pscustomobject]@{
@@ -212,12 +248,20 @@ $usersCsvPath = Join-Path $config.OutputDirectory 'LinuxLocalUsers.csv'
 $groupsCsvPath = Join-Path $config.OutputDirectory 'LinuxLocalGroups.csv'
 $membersCsvPath = Join-Path $config.OutputDirectory 'LinuxLocalGroupMembers.csv'
 $sudoRightsCsvPath = Join-Path $config.OutputDirectory 'LinuxSudoRights.csv'
+$databasesCsvPath = Join-Path $config.OutputDirectory 'LinuxDatabases.csv'
+$softwareCsvPath = Join-Path $config.OutputDirectory 'LinuxSoftware.csv'
+$serviceAccountsCsvPath = Join-Path $config.OutputDirectory 'LinuxServiceAccounts.csv'
+$unrecognizedListeningPortsCsvPath = Join-Path $config.OutputDirectory 'LinuxUnrecognizedListeningPorts.csv'
 $scanErrorsCsvPath = Join-Path $config.OutputDirectory 'LinuxScanErrors.csv'
 
 $userRows | Export-Csv -Path $usersCsvPath -NoTypeInformation -Encoding UTF8
 $groupRows | Export-Csv -Path $groupsCsvPath -NoTypeInformation -Encoding UTF8
 $memberRows | Export-Csv -Path $membersCsvPath -NoTypeInformation -Encoding UTF8
 $sudoRightsRows | Export-Csv -Path $sudoRightsCsvPath -NoTypeInformation -Encoding UTF8
+$databaseRows | Export-Csv -Path $databasesCsvPath -NoTypeInformation -Encoding UTF8
+$softwareRows | Export-Csv -Path $softwareCsvPath -NoTypeInformation -Encoding UTF8
+$serviceAccountRows | Export-Csv -Path $serviceAccountsCsvPath -NoTypeInformation -Encoding UTF8
+$unrecognizedListeningPortRows | Export-Csv -Path $unrecognizedListeningPortsCsvPath -NoTypeInformation -Encoding UTF8
 $scanErrorRows | Export-Csv -Path $scanErrorsCsvPath -NoTypeInformation -Encoding UTF8
 
 $archiveDirectory = Join-Path $config.OutputDirectory 'Archive'
@@ -227,14 +271,18 @@ Copy-Item -Path $usersCsvPath -Destination (Join-Path $archiveDirectory "LinuxLo
 Copy-Item -Path $groupsCsvPath -Destination (Join-Path $archiveDirectory "LinuxLocalGroups_$stamp.csv")
 Copy-Item -Path $membersCsvPath -Destination (Join-Path $archiveDirectory "LinuxLocalGroupMembers_$stamp.csv")
 Copy-Item -Path $sudoRightsCsvPath -Destination (Join-Path $archiveDirectory "LinuxSudoRights_$stamp.csv")
+Copy-Item -Path $databasesCsvPath -Destination (Join-Path $archiveDirectory "LinuxDatabases_$stamp.csv")
+Copy-Item -Path $softwareCsvPath -Destination (Join-Path $archiveDirectory "LinuxSoftware_$stamp.csv")
+Copy-Item -Path $serviceAccountsCsvPath -Destination (Join-Path $archiveDirectory "LinuxServiceAccounts_$stamp.csv")
+Copy-Item -Path $unrecognizedListeningPortsCsvPath -Destination (Join-Path $archiveDirectory "LinuxUnrecognizedListeningPorts_$stamp.csv")
 Copy-Item -Path $scanErrorsCsvPath -Destination (Join-Path $archiveDirectory "LinuxScanErrors_$stamp.csv")
 
 $retentionCount = if ($config.ArchiveRetentionCount) { [int]$config.ArchiveRetentionCount } else { 30 }
-foreach ($prefix in 'LinuxLocalUsers', 'LinuxLocalGroups', 'LinuxLocalGroupMembers', 'LinuxSudoRights', 'LinuxScanErrors') {
+foreach ($prefix in 'LinuxLocalUsers', 'LinuxLocalGroups', 'LinuxLocalGroupMembers', 'LinuxSudoRights', 'LinuxDatabases', 'LinuxSoftware', 'LinuxServiceAccounts', 'LinuxUnrecognizedListeningPorts', 'LinuxScanErrors') {
     Get-ChildItem -Path $archiveDirectory -Filter "$prefix`_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -Skip $retentionCount | Remove-Item -Force
 }
 
-Write-DiscoveryLog -LogPath $logPath -Message "Export complete. Users: $($userRows.Count), groups: $($groupRows.Count), membership rows: $($memberRows.Count), sudo-rights rows: $($sudoRightsRows.Count), failed computers: $($scanErrorRows.Count)."
+Write-DiscoveryLog -LogPath $logPath -Message "Export complete. Users: $($userRows.Count), groups: $($groupRows.Count), membership rows: $($memberRows.Count), sudo-rights rows: $($sudoRightsRows.Count), database services: $($databaseRows.Count), other software services: $($softwareRows.Count), service accounts of interest: $($serviceAccountRows.Count), unrecognized listening ports: $($unrecognizedListeningPortRows.Count), failed computers: $($scanErrorRows.Count)."
 
 if ($hadFailures) {
     Write-DiscoveryLog -Level WARN -LogPath $logPath -Message 'One or more computers failed; see ERROR entries above.'

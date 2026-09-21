@@ -29,7 +29,8 @@ unavailable for the untrusted domains.
   network line-of-sight to a DC and a working credential.
 - **CyberArk is the existing credential system of record.** Rather than inventing a new secrets
   store, credentials are resolved at runtime from whatever CyberArk already manages (CP, CCP, or
-  Conjur) or from a pre-exported `PSCredential` file — see `Modules\CredentialResolver.psm1`.
+  Conjur) or from a pre-exported `PSCredential` file — see the sibling aPeSecrets project's
+  `Modules\CredentialResolver.psm1` (extracted from this project 2026-09-21).
 - **RSAT's `ActiveDirectory` module is the standard, already-available tool** for AD queries on an
   admin workstation, so this reuses it rather than reimplementing LDAP calls over
   `System.DirectoryServices`.

@@ -225,50 +225,113 @@ input/output files apart rather than share one schema with platform-specific bla
 
 | Property | Required | Description |
 |---|---|---|
-| `OutputDirectory` | Yes | Where `LinuxLocalUsers.csv` / `LinuxLocalGroups.csv` / `LinuxLocalGroupMembers.csv` / `LinuxSudoRights.csv` / `LinuxScanErrors.csv` and the `Archive`/`Logs` subfolders are written. |
+| `OutputDirectory` | Yes | Where `LinuxLocalUsers.csv` / `LinuxLocalGroups.csv` / `LinuxLocalGroupMembers.csv` / `LinuxSudoRights.csv` / `LinuxDatabases.csv` / `LinuxSoftware.csv` / `LinuxServiceAccounts.csv` / `LinuxUnrecognizedListeningPorts.csv` / `LinuxScanErrors.csv` and the `Archive`/`Logs` subfolders are written. |
 | `LogDirectory` | No | Defaults to `<OutputDirectory>\Logs`. |
 | `ArchiveRetentionCount` | No | Defaults to 30. |
 | `MaxConcurrency` | No | How many computers to scan at once, via the same kind of throttled runspace pool as `Export-LocalGroups.ps1`. Defaults to `1` (fully sequential). Must be `1` or greater. Verified live: 3 simultaneous scans of the same host completed within the same second with no cross-talk between their results. |
 | `ConnectTimeoutMs` | No | Timeout for the TCP port-22 reachability check, in milliseconds. Defaults to `2000`. |
 | `SshConnectTimeoutSeconds` | No | Passed to `New-SSHSession -ConnectionTimeout`. Defaults to `15`. |
-| `CommandTimeoutSeconds` | No | Passed to `Invoke-SSHCommand -TimeOut` for the combined per-computer discovery command. Defaults to `60` — the command loops `sudo -n -l -U` over every discovered account, so a host with many local accounts needs more headroom than a single simple command would. |
+| `CommandTimeoutSeconds` | No | Passed to `Invoke-SSHCommand -TimeOut` for the combined per-computer discovery command. Defaults to `60`, but **120 is recommended** (used in `LinuxScanConfig.example.json`) now that the command also loops `systemctl show` over every registered service unit (confirmed live: ~350 units in under 2 seconds on the test VM, but headroom matters more on a host with many more services) in addition to looping `sudo -n -l -U` over every discovered account. |
 | `AcceptNewHostKey` | No | `true` (default) passes `-AcceptKey` to `New-SSHSession`, auto-trusting a host the first time it's scanned (Posh-SSH persists accepted keys to the Run As account's `$HOME\.poshss\hosts.json`, so this only matters on first contact per host). Set `false` to require the host key already be trusted via some other means. |
 | `RetryCount` | No | Additional attempts for a computer that fails, before giving up on it. Defaults to `0`. Each retry re-runs the entire per-computer scan (new SSH session, new combined command); any rows a partial earlier attempt collected are discarded first. |
 | `RetryDelaySeconds` | No | Delay between retry attempts. Defaults to `5`. Ignored when `RetryCount` is `0`. |
+| `DatabaseSignatures` | No | Array of `{ Engine, UnitPattern, DefaultPort }` used to recognize a database engine from its systemd unit name and, when `DefaultPort` isn't `null`, check it against a single `ss -tlnp` capture. Omit to use the built-in list (`Modules\LocalLinuxComputerScanner.psm1`'s `Get-DefaultLinuxDatabaseSignatures`); provide your own array to **replace** (not merge with) it — same replace-semantics as the Windows tool's `DatabaseSignatures`. `UnitPattern` is matched with `-like` against the systemd unit's full name (e.g. `postgresql*`), not a simplified/display name. |
+| `SoftwareSignatures` | No | Array of `{ Name, Category, UnitPattern, DefaultPort }`, same matching mechanism as `DatabaseSignatures`, for recognizing any other software by its systemd unit name. Unlike `DatabaseSignatures`, there is **no built-in default** — omit it (or leave it empty) and nothing is checked. `DefaultPort` may be `null` for software with no fixed listening port of its own (e.g. `docker.service` itself — the containers it manages listen via separate `docker-proxy` processes, not `docker.service` directly). |
 
 These apply globally, to every computer in `LinuxComputersToScan.csv` — there is currently no per-computer override.
 
-### Sudo-dependent fields
+### Linux database and other software detection
 
-`LinuxLocalUsers.csv`'s `PasswordState`/`PasswordLastSet`/`PasswordNeverExpires` and every row of
-`LinuxSudoRights.csv` beyond a bare "no access" all require the **connecting** account to have usable
-`sudo` rights on the target — specifically **broad** (`ALL`) rights to get useful data out of
+`Export-LocalLinuxGroups.ps1` enumerates every registered systemd service unit once per computer
+(`systemctl list-unit-files` union `systemctl list-units`, deduplicated — `list-unit-files` alone
+misses instantiated template units like `postgresql@18-main.service`, confirmed live) and matches
+each unit's name against two independent signature lists, the same two-list shape as the Windows
+tool's `DatabaseSignatures`/`SoftwareSignatures` (just `ServicePattern` renamed to `UnitPattern`,
+since it matches a systemd unit name rather than a Win32 service short name):
+
+- **`DatabaseSignatures`** → `LinuxDatabases.csv`, one row per matched database engine unit.
+- **`SoftwareSignatures`** → `LinuxSoftware.csv`, one row per matched other-software unit. Empty by
+  default (see above) — meant for whatever else matters in your own environment.
+
+A unit can match both lists, and even match twice within one list, if a templated service registers
+both a wrapper unit and an instantiated one (confirmed live: PostgreSQL's `postgresql.service` and
+`postgresql@18-main.service` both match `postgresql*`). When a matched signature has a `DefaultPort`
+(not `null`), it's checked against a single `ss -tlnp` capture taken once per computer (not a probe
+per signature the way the Windows tool does it) — this also means any listening port matching no
+configured signature at all gets surfaced in `LinuxUnrecognizedListeningPorts.csv`, a capability the
+Windows tool's per-signature-port-probe design can't offer.
+
+`ss -tlnp`'s process-attribution column needs the connecting account to have usable sudo access (see
+below) — without it, `Listening` is left blank for every signature and
+`LinuxUnrecognizedListeningPorts.csv` is empty for that computer, logged as a `WARN` rather than
+failing the scan.
+
+#### Adding a new Linux signature
+
+Same idea as the Windows steps in [Database and other-software detection](#database-and-other-software-detection):
+
+1. **Find the unit's exact name** on a real host that has it installed:
+   ```bash
+   systemctl list-units --type=service --all | grep -i '<something recognizable>'
+   ```
+2. **Decide the `UnitPattern`** — the exact name for a fixed unit (`ssh.service`), or a `-like`
+   wildcard if the real name varies (`postgresql*` to catch both the wrapper and every instantiated
+   cluster version).
+3. **Determine the default port**, if any, the same way as the Windows steps — use `null` rather than
+   guessing when there isn't one, or when the unit itself doesn't bind the port directly (as with
+   `docker.service`).
+4. **Add the entry to `LinuxScanConfig.json`** — remember `DatabaseSignatures` replaces the built-in
+   list rather than merging with it, same caveat as the Windows tool.
+5. **Test against a known host**: `.\Export-LocalLinuxGroups.ps1 -ComputerFilter '<host>'`, then check
+   `LinuxDatabases.csv`/`LinuxSoftware.csv` for the expected row.
+
+### Sudo-dependent fields and elevation
+
+`LinuxLocalUsers.csv`'s `PasswordState`/`PasswordLastSet`/`PasswordNeverExpires`/
+`SshPasswordLoginPossible`/`SshKeyLoginPossible`, every row of `LinuxSudoRights.csv` beyond a bare
+"no access", and `ss -tlnp`-derived data (`Listening` in `LinuxDatabases.csv`/`LinuxSoftware.csv`,
+and all of `LinuxUnrecognizedListeningPorts.csv`) all require the **connecting** account to have
+usable `sudo` rights on the target — specifically **broad** (`ALL`) rights to get useful data out of
 `LinuxSudoRights.csv` for accounts other than itself (confirmed live: an account with only a narrow
-sudo grant of its own could not list another account's rights). When the connecting account has no
-sudo access at all, `sudo -n ...` fails fast with no password prompt (confirmed live — it never
-hangs), so these fields are simply left blank/`Unknown` rather than causing the scan to fail. There is
-currently no configuration to *supply* a sudo password for a password-required rule — see
-[Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) Section 5a/10 for the proposed
-(not yet built) `SudoCredentialSource`/`SudoCredentialParams` mechanism.
+sudo grant of its own could not list another account's rights). `LinuxServiceAccounts.csv` and the
+enumeration/matching in `LinuxDatabases.csv`/`LinuxSoftware.csv` do **not** need sudo at all —
+`systemctl show` and `ps -eo pid,user` are both readable by any user.
+
+**Elevation is automatic and needs no configuration when the connecting account's own sudo password
+is resolvable.** Every scan attempt tries a single `sudo -S` "refresh the credential ticket" call at
+the start of the combined remote command, using:
+- the same password that authenticated the SSH session, when `CredentialSource` is password-based
+  (no `KeyFilePath` set) — no extra configuration needed;
+- `SudoCredentialSource`/`SudoCredentialParams` (same shape as the top-level `CredentialSource`/
+  `CredentialParams`) when `KeyFilePath` is set, since a key has no password to reuse for sudo. Also
+  honored as an explicit override even for password-based auth, for the case where an account's sudo
+  password genuinely differs from its login password.
+
+If neither applies (key-based auth with no `SudoCredentialSource` configured), or the resolved sudo
+credential is wrong, elevation simply isn't attempted/fails — confirmed live to fail cleanly and fast
+either way (`sudo -n`/`sudo -S` never hang), leaving the sudo-dependent fields blank/`Unknown` rather
+than failing the whole computer's scan. See
+[Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) Section 5a for the full design,
+including why a single ticket-refresh call is used instead of piping the password before every
+individual `sudo` invocation, and the real bugs found while verifying it end-to-end.
 
 ## Credential sources
 
 `CredentialSource` / `CredentialParams` (or `CredentialParamsJson`) accept the same shape in all
 three input files (`ComputersToScan.csv`, `LinuxComputersToScan.csv`, and `ScanConfig.json`'s
-per-domain entries).
+per-domain entries), and are resolved by the sibling
+[aPeSecrets](../../aPeSecrets) project's `Modules\CredentialResolver.psm1`
+(`Get-ResolvedCredential`) — see its own
+[Docs\Configuration.md](../../aPeSecrets/Docs/Configuration.md) for the full parameter reference
+per source (`CurrentUser`, `PSCredential`, `WindowsCredentialManager`, `CP`, `CCP`, `Conjur`) and
+what's actually been live-verified. This project passes `CredentialParams`/`CredentialParamsJson`
+straight through as aPeSecrets's `Params` hashtable, unchanged.
 
-- **CurrentUser** — run as whatever account is already running the script. `CredentialParams` is ignored (pass `{}`).
-- **PSCredential** — reads a credential exported ahead of time with `Get-Credential | Export-Clixml -Path ...`. Requires `CredentialFilePath`. Because `Export-Clixml` encrypts with DPAPI, the file can only be read back by the same Windows account, on the same machine, that created it — typically the scheduled task's Run As account. For `Export-LocalLinuxGroups.ps1` with key-based SSH auth, this file still supplies the SSH username (`New-SSHSession -Credential` is required in every parameter set, including key-based ones) — its password can be an empty `SecureString` when the key itself has no passphrase.
-- **CP** — CyberArk's Application Access Manager Credential Provider, via `CLIPasswordSDK.exe`. Requires `AppID`; and either `Query`, or one or more of `Safe`/`Folder`/`Object`. Optional `ClipasswordsdkPath` if the SDK is installed somewhere other than the default path. Optional `UserName` fallback if the CP doesn't return `PassProps.UserName` for this account.
-- **CCP** — CyberArk's Central Credential Provider REST web service. Requires `BaseUrl` and `AppID`; and either `Query`, or one or more of `Safe`/`Folder`/`Object`. Optional `Reason` and `ClientCertificateThumbprint` (for mutual-TLS AppIDs; the certificate must already be installed in `LocalMachine\My` or `CurrentUser\My`).
-- **Conjur** — Requires `ApplianceUrl`, `Account`, `AuthnLogin` (the host identity), `Identifier` (the variable holding the password), and either `ApiKeyPath` (a file containing the host's API key) or `ApiKeyEnvVar` (an environment variable containing it). Also requires either `UserName` (literal) or `UsernameIdentifier` (a second Conjur variable holding the username).
-
-`Export-LocalLinuxGroups.ps1` recognizes one additional `CredentialParams` field, read directly by
-the script rather than by `CredentialResolver.psm1`:
+`Export-LocalLinuxGroups.ps1` recognizes two additional `CredentialParams` fields, read directly by
+this project's own scanner module rather than by `CredentialResolver.psm1`:
 
 - **`KeyFilePath`** — path to a private key file, passed straight through to `New-SSHSession -KeyFile`. When set, SSH authenticates with this key rather than the resolved credential's password; the resolved credential's username is still used as the SSH login name (and its password, if any, as the key's passphrase). Omit for plain password authentication.
-
-> **Verify before production use.** The CP/CCP/Conjur helpers implement each product's publicly documented integration pattern, but exact details — CLI install path, the CCP web service's virtual directory name, supported query parameters, TLS/certificate requirements — vary by version and by how your environment is configured. Confirm every value against your own CyberArk deployment before relying on this for a production nightly run.
+- **`SudoCredentialSource`/`SudoCredentialParams`** — an optional second `CredentialSource`/`CredentialParams` pair, resolved the same way as the primary one, used only to supply a password for `sudo` elevation on the target (see [Sudo-dependent fields and elevation](#sudo-dependent-fields-and-elevation)). Required when `KeyFilePath` is set and elevation is needed (a key has no password to reuse for sudo); optional otherwise as an override when the account's sudo password genuinely differs from its SSH login password. Only the resolved credential's *password* is used — its username is ignored, since sudo always elevates as whichever account the SSH session is already connected as.
 
 ## Why per-domain and per-computer credentials are separate
 

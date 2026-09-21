@@ -2,6 +2,12 @@
 
 All three scripts return a process exit code (`0` success, `1` one or more domains/computers failed) and write their own timestamped log file, so a Scheduled Task only needs to run `powershell.exe`/`pwsh.exe` and can rely on the exit code for basic pass/fail alerting.
 
+**Deployment note:** every script here imports credential resolution from the sibling **aPeSecrets**
+project via a relative path (`..\aPeSecrets\Modules\CredentialResolver.psm1`). Whatever host runs
+this Scheduled Task needs both projects deployed as sibling folders under the same parent
+directory (e.g. `C:\aPeDiscovery` and `C:\aPeSecrets`, not just `C:\aPeDiscovery` on its own) — the
+examples below assume that layout.
+
 ## Register with PowerShell (`ScheduledTasks` module)
 
 Run this as the account that will own the task (or `-Credential` to target a different Run As account). Adjust paths, `-At` time, and the Run As account for your environment.
@@ -40,7 +46,7 @@ Repeat with a second action pointing at `Export-LocalGroups.ps1` for the local W
 Keep two credential concerns distinct:
 
 1. **The Task Scheduler Run As account** — the identity `powershell.exe` itself runs as. This account needs local logon rights on the host running the script, (for `Export-ADGroups.ps1`) the RSAT `ActiveDirectory` PowerShell module installed, and (for `Export-LocalLinuxGroups.ps1`) the `Posh-SSH` PowerShell module installed. It does **not** need rights in the target domains/computers if every domain/computer entry uses `CP`/`CCP`/`Conjur`/`PSCredential` rather than `CurrentUser`.
-2. **The per-domain / per-computer scan credentials** — resolved at runtime by `CredentialResolver.psm1` from CyberArk (or a pre-exported `PSCredential` file), as configured in `ScanConfig.json` / `ComputersToScan.csv` / `LinuxComputersToScan.csv`. These are what actually authenticate to each target domain/computer.
+2. **The per-domain / per-computer scan credentials** — resolved at runtime by aPeSecrets's `CredentialResolver.psm1` from CyberArk (or a pre-exported `PSCredential` file, or Windows Credential Manager), as configured in `ScanConfig.json` / `ComputersToScan.csv` / `LinuxComputersToScan.csv`. These are what actually authenticate to each target domain/computer.
 
 ## Monitoring
 

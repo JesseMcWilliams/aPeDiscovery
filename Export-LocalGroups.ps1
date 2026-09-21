@@ -88,7 +88,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $loggingModulePath = Join-Path $PSScriptRoot 'Modules\Logging.psm1'
-$credentialModulePath = Join-Path $PSScriptRoot 'Modules\CredentialResolver.psm1'
+$credentialModulePath = Join-Path $PSScriptRoot '..\aPeSecrets\Modules\CredentialResolver.psm1'
 $networkModulePath = Join-Path $PSScriptRoot 'Modules\NetworkHelpers.psm1'
 $scannerModulePath = Join-Path $PSScriptRoot 'Modules\LocalComputerScanner.psm1'
 

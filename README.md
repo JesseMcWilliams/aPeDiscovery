@@ -6,7 +6,10 @@ tool. Designed to run unattended (nightly, via Scheduled Task) across multiple
 domains — including domains with no trust relationship to the host running the
 scripts — by resolving credentials per target from CyberArk (CP, CCP, or
 Conjur) or a pre-exported `PSCredential` file, rather than relying on a single
-identity.
+identity. Credential resolution itself lives in the sibling
+[aPeSecrets](../aPeSecrets) project (`Modules\CredentialResolver.psm1`,
+`Get-ResolvedCredential`) — this repo depends on it rather than carrying its
+own copy.
 
 ## Scripts
 
@@ -39,7 +42,7 @@ identity.
   cross-reference that flags any account not actually a real gMSA/MSA).
 - **Export-LocalLinuxGroups.ps1** — reads a list of computers from
   `Config\LinuxComputersToScan.csv` (password or key-based SSH auth per row,
-  resolved via the same `CredentialResolver.psm1`, plus an optional
+  resolved via the same aPeSecrets `CredentialResolver.psm1`, plus an optional
   `KeyFilePath`), scans them concurrently over SSH (`Posh-SSH`, throttled by
   `MaxConcurrency`, same `RunspacePool` design as `Export-LocalGroups.ps1`,
   with a TCP-22 reachability check), and writes `LinuxLocalUsers.csv` /
@@ -49,8 +52,27 @@ identity.
   / `LinuxScanErrors.csv`. Local users also get `PasswordState`/
   `PasswordLastSet`/`PasswordNeverExpires` when the connecting account has
   usable `sudo` access (left blank otherwise, rather than failing the scan).
-  Linux output is entirely separate from the Windows tool's files — no shared
-  filenames or schema.
+  Users and groups also carry a `DirectoryJoined` flag (SSSD/Winbind actually
+  active, not just referenced in `/etc/nsswitch.conf`) — entries are still
+  collected normally either way, this just flags that some may be
+  directory-sourced rather than genuinely local. Sudo elevation itself
+  (`echo | sudo -S`, one ticket-refresh call per computer, not per account) is
+  automatic whenever a sudo password is resolvable — reused from the login
+  credential, or from an optional `SudoCredentialSource`/`SudoCredentialParams`
+  for key-based auth. Also writes `LinuxDatabases.csv` / `LinuxSoftware.csv`
+  (systemd-unit-name signature matching, mirroring the Windows tool's
+  `DatabaseSignatures`/`SoftwareSignatures`, with `LinuxDatabases.csv` covering
+  PostgreSQL/MySQL/MariaDB/MongoDB by default — only PostgreSQL verified live
+  so far) / `LinuxServiceAccounts.csv` (every non-root service account,
+  resolved from the unit's actual running process, not systemd's own possibly
+  misleading `User=` property) / `LinuxUnrecognizedListeningPorts.csv` (any
+  listening port matching no configured signature at all — a single `ss -tlnp`
+  capture per computer, going further than the Windows tool's
+  one-probe-per-signature design). Local users also get
+  `SshPasswordLoginPossible`/`SshKeyLoginPossible` (from the account's real
+  password state, the effective `sshd` config, and its own `authorized_keys` —
+  all needing the same sudo access). Linux output is entirely separate from the
+  Windows tool's files — no shared filenames or schema.
 
 All three scripts:
 - take direct membership only (no recursive/nested-group expansion — the
@@ -63,18 +85,19 @@ All three scripts:
 
 See [Docs/CSV-Schemas.md](Docs/CSV-Schemas.md) for exact column layouts,
 [Docs/Configuration.md](Docs/Configuration.md) for every config/credential
-option, and [Docs/Testing-Guide.md](Docs/Testing-Guide.md) for step-by-step
-validation procedures for every feature.
+option, [Docs/Testing-Guide.md](Docs/Testing-Guide.md) for step-by-step
+validation procedures for every feature, and [Docs/Open-Items.md](Docs/Open-Items.md)
+for the current project-wide backlog.
 
 ## Design documents
 
 - [Docs/Design-AD-Discovery.md](Docs/Design-AD-Discovery.md) — implemented.
 - [Docs/Design-Local-Windows-Discovery.md](Docs/Design-Local-Windows-Discovery.md) — implemented.
-- [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md) — connectivity,
-  concurrency, users/groups/membership, password-state fields, and sudo rights discovery are
-  implemented and verified live against a real Ubuntu VM. Database/software/service-account
-  detection (Phase 5), `BadPasswordAttempts`, and per-account SSH-login eligibility are designed but
-  not yet built.
+- [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md) — Phases 1-5
+  implemented and verified live against a real Ubuntu VM: connectivity, concurrency,
+  users/groups/membership, password-state fields, sudo rights discovery and elevation,
+  database/software/service-account detection, and per-account SSH-login eligibility.
+  `BadPasswordAttempts` remains designed but not yet built — the only unbuilt item left.
 
 ## Prerequisites
 
@@ -129,7 +152,6 @@ Export-ADGroups.ps1            Domain group + membership export
 Export-LocalGroups.ps1         Per-computer local Windows user/group/membership discovery
 Export-LocalLinuxGroups.ps1    Per-computer local Linux user/group/membership/sudo-rights discovery
 Modules\
-  CredentialResolver.psm1        CurrentUser / PSCredential / CP / CCP / Conjur resolution
   ADHelpers.psm1                 OU-depth-scoped search helper
   Logging.psm1                   Shared timestamped file+console logging (thread-safe)
   NetworkHelpers.psm1            TCP-connect reachability probe
@@ -146,11 +168,17 @@ Docs\
   CSV-Schemas.md                       Output column reference
   Scheduled-Task-Setup.md              Unattended scheduling guidance
   Testing-Guide.md                     Step-by-step validation procedures for every feature
+  Open-Items.md                        Project-wide backlog: open decisions, unbuilt features, verification gaps
   Design-AD-Discovery.md               Design doc - AD group export (implemented)
   Design-Local-Windows-Discovery.md    Design doc - local Windows discovery (implemented)
   Design-Local-Linux-Discovery.md      Design doc - local Linux discovery (mostly implemented)
 Output\                     Default (gitignored) output/log/archive location
 ```
+
+Credential resolution (`CredentialResolver.psm1`, `Get-ResolvedCredential`) lives in the sibling
+[..\aPeSecrets](../aPeSecrets) project, not in this repo's own `Modules\` — every script here
+imports it via a relative `..\aPeSecrets\Modules\CredentialResolver.psm1` path, so both projects
+need to stay checked out as siblings under the same parent folder.
 
 `Config\*.json` and `Config\ComputersToScan.csv`/`Config\LinuxComputersToScan.csv`
 (the real, non-`.example` files) are gitignored since they carry real
@@ -164,7 +192,9 @@ domain/computer names and credential-source parameters — commit only the
   `authn` + `secrets` REST API), but exact details vary by product version and
   environment (install paths, web service virtual directory names, TLS/cert
   requirements). Validate against your own deployment before production use —
-  see the note at the top of [Modules\CredentialResolver.psm1](Modules/CredentialResolver.psm1).
+  see the note at the top of aPeSecrets's
+  [Modules\CredentialResolver.psm1](../aPeSecrets/Modules/CredentialResolver.psm1) and its
+  [Docs\Configuration.md](../aPeSecrets/Docs/Configuration.md).
 - **AD's 1,500-value range limit** on the `member` attribute can make
   `MemberCount` (and the raw-DN membership fallback path) incomplete for
   groups with very large direct membership; the primary membership-resolution
@@ -221,14 +251,19 @@ domain/computer names and credential-source parameters — commit only the
   `ApiKeyPath`/`CredentialFilePath` files, and file-system ACLs on
   `Config\`/`Output\`/any secrets directory are the operator's
   responsibility — this project does not manage those.
-- **`Export-LocalLinuxGroups.ps1` does not yet detect databases/software/service
-  accounts** (the Windows tool's `LocalDatabases.csv`/`LocalSoftware.csv`/
-  `LocalServiceAccounts.csv` equivalents) or per-account SSH-login eligibility,
-  and does not collect `BadPasswordAttempts` — all four are designed (see
-  [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md))
-  but not yet built. **`LinuxSudoRights.csv`'s `PasswordRequired` classification
-  is implemented but not fully verified** — no test account with a genuinely
-  password-required (not `NOPASSWD`) sudo rule has been available to confirm it
-  against. Any account's sudo-derived fields require the *connecting* account
-  to have broad (`ALL`) sudo rights on the target; without it, those fields are
-  left blank rather than failing the scan.
+- **`Export-LocalLinuxGroups.ps1` does not yet collect `BadPasswordAttempts`** —
+  designed (see [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md))
+  but not yet built; it's the only remaining unbuilt item in the Linux design.
+  Any sudo-derived field (password state, sudo rights, `Listening`/
+  unrecognized-port checks, SSH-login eligibility) requires the *connecting*
+  account to have a resolvable sudo credential (broad `ALL` rights for
+  `LinuxSudoRights.csv` specifically); without one, those fields are left blank
+  rather than failing the scan. `LinuxDatabases.csv`'s built-in signatures
+  beyond PostgreSQL (MySQL/MariaDB/MongoDB) are unverified starter guesses — no
+  such engine has been available on the test VM to confirm against.
+  `SshKeyLoginPossible` only checks the default `~/.ssh/authorized_keys` path,
+  not a customized `AuthorizedKeysFile` directive. Actually supplying a sudo
+  password for the password-required elevation case is fully implemented and
+  verified, but the `SudoCredentialSource` override path (for key-based SSH
+  auth) has not been separately verified live for lack of a matching test
+  scenario.
