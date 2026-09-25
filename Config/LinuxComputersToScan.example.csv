@@ -1,4 +1,4 @@
 ComputerName,Enabled,CredentialSource,CredentialParamsJson,Notes
 lnx-app01.contoso.com,1,CP,"{""AppID"":""aPeDiscovery"",""Safe"":""Linux-Local-Accounts"",""Object"":""lnx-app01-scanner""}",Prod app server (password auth)
-lnx-app02.contoso.com,1,PSCredential,"{""CredentialFilePath"":""C:\\aPeDiscovery\\Secrets\\lnx-app02.clixml"",""KeyFilePath"":""C:\\aPeDiscovery\\Secrets\\lnx-app02-key""}",Key-based auth - CredentialFilePath supplies the username (and passphrase if the key has one)
+lnx-app02.contoso.com,1,PSCredential,"{""CredentialFilePath"":""C:\\aPeDiscovery\\Secrets\\lnx-app02.clixml"",""KeyFilePath"":""C:\\aPeDiscovery\\Secrets\\lnx-app02-key"",""SudoCredentialSource"":""CP"",""SudoCredentialParams"":{""AppID"":""aPeDiscovery"",""Safe"":""Linux-Local-Accounts"",""Object"":""lnx-app02-sudo""}}",Key-based SSH auth plus a separate CP-sourced sudo password (a key has no password of its own to reuse)
 lnx-legacy.contoso.com,0,CurrentUser,"{}",Disabled - decommissioned

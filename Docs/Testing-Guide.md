@@ -204,21 +204,81 @@ None`. For one with a `NOPASSWD` rule, confirm `SudoAccess = PasswordlessSomeOrA
 broad (`ALL`) sudo rights, expect every row to read `Unknown` instead — this is a real constraint of
 how `sudo -n -l -U` works, not a bug (see [Configuration.md](Configuration.md#sudo-dependent-fields)).
 
-### 3.7 Error handling
+### 3.7 Directory-join detection (`DirectoryJoined`)
 
-Point `-ComputerFilter` at a hostname that resolves but rejects the configured credential and confirm
-exactly one row lands in `LinuxScanErrors.csv` with a clear `ErrorMessage` (and never the password/
-passphrase itself), exit code `1`, and a corresponding `ERROR` log line.
+```powershell
+Import-Csv .\Output\Linux\LinuxLocalUsers.csv | Group-Object DirectoryJoined | Format-Table Name, Count
+```
+Against a host that is **not** actually joined to SSSD/Winbind, confirm every row reads `False` —
+including if `/etc/nsswitch.conf` happens to mention `sss` (confirmed live this can be present from a
+base OS image with `sssd` never actually configured; don't rely on `nsswitch.conf` alone to judge this
+by eye). If you have (or can join) a host actually connected to SSSD or Winbind, confirm every row for
+that host reads `True`, and that `LinuxLocalUsers.csv`/`LinuxLocalGroups.csv` still contain the same
+rows as before (this flag is informational only — it never filters anything out).
+
+### 3.8 Sudo elevation for the password-required case
+
+Configure a row whose `CredentialSource` resolves to an account with full (`ALL`) but
+password-required (not `NOPASSWD`) sudo rights, and use it as the connecting account (not just a
+target another account checks via `-U`). Confirm:
+```powershell
+Import-Csv .\Output\Linux\LinuxLocalUsers.csv | Where-Object UserName -eq '<that account>' | Format-List PasswordState, PasswordLastSet
+```
+`PasswordState` should be populated (e.g. `PasswordSet`), proving real elevation happened via the
+account's own password rather than relying on `NOPASSWD`. No `WARN` about "sudo elevation was not
+established" should appear in the log for this run. Then test the opposite: an account with **no**
+sudo access at all as the connecting account, and confirm the fields come back blank with a `WARN`
+logged, but the scan still succeeds (exit code `0`, other computers unaffected).
+
+### 3.9 Database/software detection and service accounts (Phase 5)
+
+Run against a computer with a known database engine or other signature-matched software installed
+(the default `DatabaseSignatures` cover PostgreSQL/MySQL/MariaDB/MongoDB by unit name):
+```powershell
+Import-Csv .\Output\Linux\LinuxDatabases.csv | Format-Table Engine, UnitName, Status, Listening
+```
+Confirm a matching row appears with the correct `Engine`/`UnitName`, and that `Listening` matches
+what you'd expect from an independent check (e.g. `ss -tlnp` run directly on the target, or a
+`Test-NetConnection <host> -Port <DefaultPort>` from the scanning host). Add a `SoftwareSignatures`
+entry (e.g. `{ "Name": "OpenSSH Server", "Category": "RemoteAccess", "UnitPattern": "ssh.service",
+"DefaultPort": 22 }`) and confirm the equivalent behavior in `LinuxSoftware.csv`, including that
+`LinuxUnrecognizedListeningPorts.csv`'s row count drops once that port becomes recognized. Then check
+`LinuxServiceAccounts.csv`:
+```powershell
+Import-Csv .\Output\Linux\LinuxServiceAccounts.csv | Group-Object ServiceAccountName | Format-Table Name, Count
+```
+Confirm no row has `ServiceAccountName` blank or `root` (both excluded by design), and — if you have
+a service that runs via a privilege-dropping wrapper (PostgreSQL's `pg_ctlcluster` is a good example
+if installed) — confirm its row shows the *real* running account, not `root`, even though
+`systemctl show <unit> --property=User` for that same unit may come back blank. If the connecting
+account has no usable sudo access, confirm `Listening` is blank throughout and
+`LinuxUnrecognizedListeningPorts.csv` is empty, with a `WARN` logged, rather than the scan failing.
+
+### 3.10 Per-account SSH login eligibility
+
+Requires the connecting account to have usable sudo access (same requirement as 3.5/3.6).
+```powershell
+Import-Csv .\Output\Linux\LinuxLocalUsers.csv | Select-Object UserName, PasswordState, Shell, SshPasswordLoginPossible, SshKeyLoginPossible | Format-Table
+```
+Cross-check a few accounts you already know the ground truth for:
+- An account you know has a real, unlocked password and a real shell (e.g. `/bin/bash`) should show
+  `SshPasswordLoginPossible = True`.
+- An account whose SSH key you're actually using to connect right now should show
+  `SshKeyLoginPossible = True` — this is directly, immediately verifiable, since you're using it.
+- A system/service account with a `nologin` or `false` shell should show `False` for both, regardless
+  of its password/key state.
+- If you know a specific account's `authorized_keys` file is empty (or you can check with
+  `sudo cat ~<user>/.ssh/authorized_keys` directly on the target), confirm `SshKeyLoginPossible =
+  False` for it even if `PubkeyAuthentication` is otherwise enabled host-wide.
+Then test with a connecting account that has **no** sudo access: confirm both fields come back blank
+(`$null`, not `False`) for every account, with a `WARN` logged about the effective sshd configuration
+being unavailable, and the scan still succeeding.
 
 ---
 
 ## 4. Things this guide deliberately does not cover
 
-Features that are designed but not yet built have no test procedure here because there's nothing to
-run yet: Linux database/software/service-account detection (`LinuxDatabases.csv`/`LinuxSoftware.csv`/
-`LinuxServiceAccounts.csv`), `BadPasswordAttempts` for Linux accounts, per-account SSH-login
-eligibility (`SshPasswordLoginPossible`/`SshKeyLoginPossible`), and supplying a password for a
-password-required sudo rule. See [Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md)
-Section 8 for what's left and Section 10 for what's still an open design question. Add sections here
-once each is actually implemented, following the same "one real target, inspect the CSV directly,
-then scale up" pattern used above.
+`BadPasswordAttempts` for Linux accounts is designed but not yet built, so there's no test procedure
+for it here — see [Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) Section 8. It's
+the only remaining unbuilt item in the Linux design; add a section here once it's implemented,
+following the same "one real target, inspect the CSV directly, then scale up" pattern used above.

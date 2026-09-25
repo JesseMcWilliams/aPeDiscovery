@@ -213,6 +213,9 @@ plus a `sudo`-derived `/etc/shadow` projection.
 | PasswordState | One of `PasswordSet`, `PasswordSetButLocked`, `LockedNoHash`, `NeverSet`, `SystemNoLogin`, `SystemNoLoginLocked`, `Unknown` — classified from `/etc/shadow` field 2's shape (real hash, `!`-prefixed hash, bare `!`, `!!`, `*`, `!*`). Blank when the connecting account has no usable `sudo` access to read `/etc/shadow` at all (a warning is logged for that computer, not an error — the rest of the scan still succeeds). |
 | PasswordLastSet | `/etc/shadow` field 3 (days since the Unix epoch), converted to a date locally. Blank under the same conditions as `PasswordState`, or when the field itself is empty. |
 | PasswordNeverExpires | `True` when `/etc/shadow` field 4 (max password age) is empty or the standard shadow-utils "effectively never" sentinel (≥ 99999 days); `False` when it's a smaller real number; blank under the same conditions as `PasswordState`. |
+| DirectoryJoined | `True` when this computer appears to be joined to a directory service (`sssd` actually active with a real `/etc/sssd/sssd.conf`, or `winbind` actually active) — **not** merely whether `/etc/nsswitch.conf` mentions `sss` (confirmed live: that alone is unreliable — a base image can reference it with `sssd` never actually configured/active). Informational only: users/groups are still collected normally either way; this just flags that some entries on a `True` computer may be directory-sourced rather than genuinely local. |
+| SshPasswordLoginPossible | `True` when the account could actually log in over SSH with a password: effective `PasswordAuthentication` is `yes` (from `sudo -n sshd -T`, the fully-resolved config — not a `sshd_config` grep, which would miss anything left at a compiled-in default), the account has a real usable password (`PasswordState = PasswordSet`), its shell is in `/etc/shells`, and — for `root` specifically — `PermitRootLogin` isn't set to a password-blocking value. Blank/`Unknown` when the connecting account had no sudo access to read the effective sshd config or `PasswordState` itself. |
+| SshKeyLoginPossible | `True` when the account could log in over SSH with a key: effective `PubkeyAuthentication` is `yes`, its `~/.ssh/authorized_keys` file exists and is non-empty (checked via `sudo -n test -s`, needed to read another account's `0700` home directory), and its shell is in `/etc/shells`. **Only the default `~/.ssh/authorized_keys` path is checked** — a customized `AuthorizedKeysFile` directive in `sshd_config` isn't accounted for (see [Open-Items.md](Open-Items.md)). Blank/`Unknown` when the connecting account had no sudo access to check. |
 
 ## LinuxLocalGroups.csv (Export-LocalLinuxGroups.ps1)
 
@@ -225,6 +228,7 @@ simply doesn't exist in `/etc/group`, not a gap in what's collected.
 | ComputerName | From the input CSV. |
 | GroupName | `/etc/group` field 1. |
 | GID | `/etc/group` field 3. |
+| DirectoryJoined | Same meaning and detection as `LinuxLocalUsers.csv`'s `DirectoryJoined` column. |
 
 ## LinuxLocalGroupMembers.csv (Export-LocalLinuxGroups.ps1)
 
@@ -257,6 +261,85 @@ accounts' rights at all, and every row on that computer will read `Unknown`.
 | UserName | The account this row's sudo check was run for. |
 | SudoAccess | `None` (no matching sudoers rule at all), `PasswordlessSomeOrAll` (at least one `NOPASSWD` rule), `PasswordRequired` (rule(s) exist, none are `NOPASSWD`), or `Unknown` (output didn't match a recognized pattern — e.g. the connecting account itself lacks the broad sudo rights this check needs). |
 | RawSudoListOutput | The full text `sudo -n -l -U <user>` returned for this account, since (confirmed live) an account can hold multiple distinct rules at once — e.g. a broad password-required group rule *plus* a narrow account-specific grant — that a single flag would flatten away. |
+
+## LinuxDatabases.csv (Export-LocalLinuxGroups.ps1)
+
+One row per systemd service unit that matched a `DatabaseSignatures` entry (see
+[Configuration.md](Configuration.md#linux-database-and-other-software-detection)) — not one row per
+computer, so a computer with no recognized database service produces no rows here at all. A
+templated unit can legitimately produce two rows for what's conceptually one engine — confirmed
+live: Debian/Ubuntu's PostgreSQL package registers both `postgresql.service` (a thin wrapper) and
+the actual instantiated `postgresql@18-main.service`, and both match the `postgresql*` pattern.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| Engine | The matched signature's `Engine` label (e.g. `PostgreSQL`). |
+| UnitName | The systemd unit's name (e.g. `postgresql@18-main.service`). |
+| Description | The unit's `systemctl show` `Description` property. |
+| Status | `ActiveState/SubState` (e.g. `active/running`). |
+| StartType | The unit's `UnitFileState` (e.g. `enabled`, `enabled-runtime`, `disabled`, `static`, `masked`) — confirmed live to have more than the four commonly-documented values (`enabled-runtime` seen on the instantiated PostgreSQL unit). |
+| Path | The unit's raw `ExecStart` property text (includes the full wrapper command line where one exists, e.g. `pg_ctlcluster`) — not simplified, since simplifying it risks losing real detail (like which wrapper actually launched the engine). |
+| DefaultPort | The signature's configured default port, or blank when the signature has none. |
+| Listening | `True`/`False` result of checking `DefaultPort` against a single `ss -tlnp` capture for that computer, or blank when `DefaultPort` is blank **or** the connecting account had no usable sudo access to run `ss -tlnp` at all (a `WARN` is logged in that case — see [Configuration.md](Configuration.md#sudo-dependent-fields-and-elevation)). |
+
+## LinuxSoftware.csv (Export-LocalLinuxGroups.ps1)
+
+Same mechanism as `LinuxDatabases.csv`, for arbitrary software matched against `SoftwareSignatures`
+(see [Configuration.md](Configuration.md#linux-database-and-other-software-detection)) — empty by
+default, so this file has no rows at all unless `SoftwareSignatures` is populated. One row per
+matched unit, not per computer.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| Name | The matched signature's `Name` label (e.g. `OpenSSH Server`, `Docker`). |
+| Category | The matched signature's `Category` label — free text, for the downstream tool to group/filter on. |
+| UnitName | The systemd unit's name. |
+| Description | Same meaning as `LinuxDatabases.csv`. |
+| Status | Same meaning as `LinuxDatabases.csv`. |
+| StartType | Same meaning as `LinuxDatabases.csv`. |
+| Path | Same meaning as `LinuxDatabases.csv`. |
+| DefaultPort | The signature's configured default port, or blank if the signature has none (e.g. `docker.service` itself doesn't bind a port directly — the containers it manages do, via separate `docker-proxy` processes not tied to any one signature). |
+| Listening | Same meaning as `LinuxDatabases.csv`. |
+
+## LinuxServiceAccounts.csv (Export-LocalLinuxGroups.ps1)
+
+One row per systemd service unit whose **actual running process** is owned by anything other than
+`root` — every registered service unit is considered (via `systemctl list-unit-files` union
+`systemctl list-units`, not just ones matching a signature), since "what runs as this account" needs
+to see everything, mirroring `LocalServiceAccounts.csv`'s role on the Windows side.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| UnitName | The systemd unit's name. |
+| Description | The unit's `Description` property. |
+| ServiceAccountName | The **resolved** account — preferentially the live process owner of the unit's `MainPID` (cross-referenced against a `ps -eo pid,user` capture taken the same run), falling back to the unit's own `User=` property only when no live PID exists to check, and to `root` (excluded from this file) when neither resolves anything. **Confirmed live this matters**: `postgresql@18-main.service`'s `User=` property is blank, but its `MainPID` is the actual `postgres` process — the naive "blank `User=` means root" reading would have wrongly excluded a real, meaningful service account. |
+| StartType | The unit's `UnitFileState`. |
+| Status | `ActiveState/SubState`. |
+| Path | The unit's raw `ExecStart` text. |
+
+## LinuxUnrecognizedListeningPorts.csv (Export-LocalLinuxGroups.ps1)
+
+One row per TCP port found actually listening (via the same single `ss -tlnp` capture used for
+`Listening` above) that does **not** match any configured `DatabaseSignatures`/`SoftwareSignatures`
+entry's `DefaultPort` — surfaces something running that no configured signature expected at all, a
+capability the Windows tool's one-port-per-signature design structurally can't offer. Empty when the
+connecting account had no usable sudo access to run `ss -tlnp` (same condition that leaves
+`Listening` blank above), or when every listening port happens to match a configured signature.
+
+| Column | Description |
+|---|---|
+| ScanTimestamp | Start time of the run. |
+| ComputerName | From the input CSV. |
+| Port | The listening TCP port number. |
+| ProcessName | The owning process's name, from `ss -tlnp`'s own process-attribution field (e.g. `docker-proxy`, `sshd`). Blank if `ss -tlnp` couldn't attribute a process (needs sudo; confirmed live this can still happen even with sudo for certain kernel-owned sockets). |
+| PID | The owning process's PID, from the same `ss -tlnp` field. |
+| ProcessOwner | The owning account, resolved by cross-referencing `PID` against the same `ps -eo pid,user` capture `LinuxServiceAccounts.csv` uses — not from `ss -tlnp` itself, which reports the process name/PID but not its owning account. |
 
 ## LinuxScanErrors.csv (Export-LocalLinuxGroups.ps1)
 
