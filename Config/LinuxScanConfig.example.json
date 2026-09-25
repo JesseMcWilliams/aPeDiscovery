@@ -5,8 +5,18 @@
   "MaxConcurrency": 5,
   "ConnectTimeoutMs": 2000,
   "SshConnectTimeoutSeconds": 15,
-  "CommandTimeoutSeconds": 60,
+  "CommandTimeoutSeconds": 120,
   "AcceptNewHostKey": true,
   "RetryCount": 1,
-  "RetryDelaySeconds": 5
+  "RetryDelaySeconds": 5,
+  "DatabaseSignatures": [
+    { "Engine": "PostgreSQL", "UnitPattern": "postgresql*", "DefaultPort": 5432 },
+    { "Engine": "MySQL/MariaDB", "UnitPattern": "mysql.service", "DefaultPort": 3306 },
+    { "Engine": "MySQL/MariaDB", "UnitPattern": "mariadb.service", "DefaultPort": 3306 },
+    { "Engine": "MongoDB", "UnitPattern": "mongod.service", "DefaultPort": 27017 }
+  ],
+  "SoftwareSignatures": [
+    { "Name": "OpenSSH Server", "Category": "RemoteAccess", "UnitPattern": "ssh.service", "DefaultPort": 22 },
+    { "Name": "Docker", "Category": "Containers", "UnitPattern": "docker.service", "DefaultPort": null }
+  ]
 }
