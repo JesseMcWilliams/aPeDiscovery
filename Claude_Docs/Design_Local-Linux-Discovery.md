@@ -1,5 +1,10 @@
 # Local Linux Discovery — Design
 
+**Current status (2026-09-25):** implemented. Phases 1-5 and per-account SSH-login eligibility are built
+and verified live. The one designed item still unbuilt is `BadPasswordAttempts` (`faillock`). The
+MySQL/MariaDB/MongoDB signatures and the key-based `SudoCredentialSource` path are built but not verified
+live. See `Planning_Open-Items.md`.
+
 **2026-09-21 update:** `Modules\CredentialResolver.psm1` (`Get-DiscoveryCredential`) referenced
 throughout this document was extracted into the sibling **aPeSecrets** project and renamed
 `Get-ResolvedCredential` — the CP live-verification and bugfix history below is preserved as-is
@@ -89,7 +94,7 @@ visibility into.
   scripts: one unreachable/misconfigured host must not abort the run, and the run must leave a
   clear audit trail.
 
-## 3. Non-goals (proposed)
+## 3. Non-goals
 
 - **Sudo rights discovery and sudo-elevated command execution are now in scope** (added
   2026-09-17, per user direction) — see Section 5a. This reverses what this document originally
@@ -130,7 +135,7 @@ with a command-line argument — it does not have this exposure. This was a real
 `plink`-based design would have inherited from `aPePAS`; switching to `Posh-SSH` avoids it rather
 than accepting it.
 
-## 5. Proposed architecture
+## 5. Architecture (as built)
 
 ```
 LinuxComputersToScan.csv (a separate file from the Windows tool's ComputersToScan.csv — decided 2026-09-17)
@@ -200,7 +205,7 @@ This doc was split for length. The full sudo-discovery/elevation design (formerl
   host's own process list** (`ps aux`/`/proc/<pid>/cmdline`) while the command runs — see Section 5a
   for the full discussion and the `SUDO_ASKPASS` alternative that would avoid it.
 
-## 8. Phased rollout (proposed)
+## 8. Phased rollout (Phases 1-5 implemented)
 
 1. **Phase 1 — implemented.** Password auth via `Posh-SSH` (no `CredentialResolver.psm1` changes
    needed); `/etc/passwd` + `/etc/group`; no primary-group resolution; `RunspacePool`-based
@@ -232,7 +237,7 @@ This doc was split for length. The full sudo-discovery/elevation design (formerl
    test VM. `MySQL`/`MariaDB`/`MongoDB` starter signatures remain unverified — no such engine has been
    available to test against.
 
-## 10. Open decisions (need an answer before Phase 1 starts)
+## 10. Decisions (all resolved)
 
 - ~~Shared or separate input file/script?~~ / ~~Shared or separate output schema?~~ — **decided with
   the user (2026-09-17): separate.** No `Platform` column, no shared filenames with the Windows tool,

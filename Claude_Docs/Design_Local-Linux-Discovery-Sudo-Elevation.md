@@ -147,10 +147,10 @@ pre-staging requirement on the target. **Not yet wired into `Modules\LocalLinuxC
   should fail clearly for that one elevation step (not the whole scan) rather than silently attempt
   elevation with no password.
 
-**Not yet implemented in code** — this is a resolved design rule, but wiring it into
-`Modules\LocalLinuxComputerScanner.psm1` depends on first settling *how* the password gets supplied
-to `sudo` (`echo | sudo -S` vs. a `SUDO_ASKPASS` helper — still open, see Section 10/`Claude_Docs\Planning_Open-Items.md`)
-and having a real password-required test account to verify against (also still needed).
+**Implemented** in `Modules\LocalLinuxComputerScanner.psm1` (Round 12): the password is supplied with
+`echo | sudo -S` (chosen over a `SUDO_ASKPASS` helper), and the password-required case is verified against a
+real test account (Round 10). The key-based `SudoCredentialSource` override path is implemented but not
+separately verified live (`Planning_Open-Items.md`).
 
 **Checking every discovered account's sudo rights, not just the scan account's own — verified live
 (2026-09-17).** The original tests above only ever checked `the NOPASSWD sudo test account`'s *own* rights (plain
