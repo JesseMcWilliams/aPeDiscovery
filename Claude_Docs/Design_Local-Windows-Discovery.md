@@ -6,8 +6,8 @@
 domain computers, driven by an input CSV where each computer can point at its own credential.
 
 This document describes the design behind `Export-LocalGroups.ps1`. See
-[Configuration.md](Configuration.md) for the full config/input schema and
-[CSV-Schemas.md](CSV-Schemas.md) for exact output columns; this doc focuses on the *why* behind the
+[Reference_Configuration.md](Reference_Configuration.md) for the full config/input schema and
+[Reference_CSV-Schemas.md](Reference_CSV-Schemas.md) for exact output columns; this doc focuses on the *why* behind the
 shape of the thing, not a field-by-field reference.
 
 ---
@@ -159,7 +159,7 @@ correct for a given install. Two high-confidence examples (IIS/`W3SVC`, OpenSSH 
 shown in `LocalScanConfig.example.json` purely as a pattern to copy, not as a shipped default — both
 were verified live on the test machine (IIS: `Listening = True` on port 80, matching a real
 running site). Two further verified examples (Remote Desktop/`TermService`/3389, Windows
-Firewall/`MpsSvc`/no port) are shown in `Docs\Configuration.md`; the Remote Desktop one turned up
+Firewall/`MpsSvc`/no port) are shown in `Claude_Docs\Reference_Configuration.md`; the Remote Desktop one turned up
 the same `Running`-but-not-`Listening` divergence as SQL Server did, on this same test machine.
 
 **Local account password fields, retry-on-failure, and structured error output (added 2026-09-16),
@@ -359,7 +359,7 @@ open item any more.
   `LocalScanConfig.json`?
 - Should `DatabaseSignatures`/`SoftwareSignatures` in config **merge** with the built-in list
   instead of **replacing** it, so adding one engine doesn't require copying the whole default list?
-  Documented clearly as replace-semantics for now (see Configuration.md), but a merge would be more
+  Documented clearly as replace-semantics for now (see Reference_Configuration.md), but a merge would be more
   convenient for the common case of "just add one more".
 - Should this project maintain a small, curated example `SoftwareSignatures` list beyond the two
   starter entries (IIS, OpenSSH Server) for other commonly-relevant categories (backup agents,
@@ -383,7 +383,7 @@ open item any more.
 | 2026-09-16 | Replaced the ICMP reachability check with a TCP-445 probe; added `MaxConcurrency`-throttled runspace-pool execution (`Modules\LocalComputerScanner.psm1`, `Modules\NetworkHelpers.psm1`); made `Write-DiscoveryLog` safe for concurrent writers; added `ExcludeUserNames`/`ExcludeGroupNames` filters. |
 | 2026-09-16 | Decided, with the user: primary-group membership will **not** be added, based on a live test showing local accounts' `primaryGroupID` universally resolves to nothing on the local machine (see Section 7); GPO-driven local admin rights get **no change**, since the tool already captures the effective result. |
 | 2026-09-16 | Added database engine detection (`LocalDatabases.csv`, `DatabaseSignatures`), reusing the WinNT bind's `Service`-class children plus a `Test-TcpPortOpen` probe of each engine's default port. Verified live against a real SQL Server install, including a `Running`-but-not-`Listening` case. |
-| 2026-09-16 | Generalized database detection to arbitrary other software (`LocalSoftware.csv`, `SoftwareSignatures`, no built-in default list); added the step-by-step "adding a new signature" guide to `Docs\Configuration.md`. Verified live (IIS/`W3SVC`, `Listening = True` on port 80) alongside the existing SQL Server detection in the same run. |
+| 2026-09-16 | Generalized database detection to arbitrary other software (`LocalSoftware.csv`, `SoftwareSignatures`, no built-in default list); added the step-by-step "adding a new signature" guide to `Claude_Docs\Reference_Configuration.md`. Verified live (IIS/`W3SVC`, `Listening = True` on port 80) alongside the existing SQL Server detection in the same run. |
 | 2026-09-16 | Added `PasswordLastSet`/`PasswordExpired`/`BadPasswordAttempts` to `LocalUsers.csv`; added `RetryCount`/`RetryDelaySeconds` (whole-scan retry) and `LocalScanErrors.csv` (structured per-computer failure records); added Remote Desktop/Windows Firewall as further verified `SoftwareSignatures` examples. All four verified live in one combined run (real password fields, a retried-then-failed unreachable host producing exactly one error row, and RDP showing the same `Running`-but-not-`Listening` divergence already seen with SQL Server). |
 | 2026-09-16 | Added service account discovery (`LocalServiceAccounts.csv`, `Get-ServiceAccountType`) — answers "what services run as this account" for any local/domain user or suspected gMSA/MSA, across every service unconditionally rather than by name-pattern matching. Verified live: `ServiceAccountName` confirmed as the correct WinNT property via trial and error; classification rules confirmed against a real machine's ~290 services (BuiltIn/Virtual/Blank cases) and, since no real user/gMSA-run service existed on that machine to test against, against synthetic domain-user and gMSA examples; a full run confirmed zero false positives with all other output unaffected. Decided with the user: broad discovery (not a targeted account-name filter) with gMSA/MSA flagged, not hard-filtered, given the heuristic isn't authoritative. |
 | 2026-09-16 | Added two derived, filtered views: `LocalDatabasesListening.csv` (`LocalDatabases.csv` rows where `Listening = True`) and `LocalGmsaServiceAccounts.csv` (`LocalServiceAccounts.csv` rows where `AccountType = LikelyGmsaOrMsa`), the latter explicitly intended to feed a later AD cross-reference step that flags accounts using the gMSA naming convention without actually being a real gMSA/MSA. Both source files are unchanged and keep every row. Verified live/synthetically that each filter isolates exactly the intended subset. |

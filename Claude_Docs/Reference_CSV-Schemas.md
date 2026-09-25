@@ -2,6 +2,78 @@
 
 All files are UTF-8, comma-delimited, with a header row (`Export-Csv -NoTypeInformation`). Every row carries a `ScanTimestamp` (the time the run started, not per-row) so a downstream import can identify which run a row came from.
 
+## Script overview
+
+- **Export-ADGroups.ps1** — reads `Config\ScanConfig.json`, scans one or more
+  domains for groups (optionally scoped to a base OU and OU depth, with
+  optional per-domain `ExcludeOUs`/`IncludeGroupCategories`/
+  `IncludeGroupScopes`/`ExcludeGroupNames` filters), and writes
+  `ADGroups.csv` / `ADGroupMembers.csv`. Also supports opt-in per-domain
+  computer object discovery (a `Computers` config block, independently scoped
+  from the group scan, filterable by `NameFilter`/`OSTypeFilter`), writing
+  `ADComputers.csv`.
+- **Export-LocalGroups.ps1** — reads a list of computers from
+  `Config\ComputersToScan.csv` (each row can point at a different credential
+  source), scans them concurrently (throttled by `MaxConcurrency`, with a
+  TCP-445 reachability check and optional `ExcludeUserNames`/
+  `ExcludeGroupNames` filters), and writes `LocalUsers.csv` / `LocalGroups.csv`
+  / `LocalGroupMembers.csv` / `LocalDatabases.csv` (known database engines
+  recognized by Windows service name, each with a live check of whether its
+  default port is actually listening) / `LocalSoftware.csv` (same mechanism,
+  for any other software you configure via `SoftwareSignatures` — empty by
+  default) / `LocalScanErrors.csv` (one row per computer that still failed
+  after any configured `RetryCount` retries) / `LocalServiceAccounts.csv`
+  (every service running as a real local/domain user or suspected gMSA/MSA —
+  answers "what services run as this account" across the estate). Local
+  accounts also get `PasswordLastSet`/`PasswordExpired`/`BadPasswordAttempts`
+  in `LocalUsers.csv`. Two derived, filtered views are also written — every
+  row in each still appears in its source file too: `LocalDatabasesListening.csv`
+  (only `Listening = True` rows) and `LocalGmsaServiceAccounts.csv` (only
+  `AccountType = LikelyGmsaOrMsa` rows, meant to feed a downstream AD
+  cross-reference that flags any account not actually a real gMSA/MSA).
+- **Export-LocalLinuxGroups.ps1** — reads a list of computers from
+  `Config\LinuxComputersToScan.csv` (password or key-based SSH auth per row,
+  resolved via the same aPeSecrets `CredentialResolver.psm1`, plus an optional
+  `KeyFilePath`), scans them concurrently over SSH (`Posh-SSH`, throttled by
+  `MaxConcurrency`, same `RunspacePool` design as `Export-LocalGroups.ps1`,
+  with a TCP-22 reachability check), and writes `LinuxLocalUsers.csv` /
+  `LinuxLocalGroups.csv` / `LinuxLocalGroupMembers.csv` / `LinuxSudoRights.csv`
+  (every discovered account's sudo access —
+  `None`/`PasswordlessSomeOrAll`/`PasswordRequired` — plus the full rule text)
+  / `LinuxScanErrors.csv`. Local users also get `PasswordState`/
+  `PasswordLastSet`/`PasswordNeverExpires` when the connecting account has
+  usable `sudo` access (left blank otherwise, rather than failing the scan).
+  Users and groups also carry a `DirectoryJoined` flag (SSSD/Winbind actually
+  active, not just referenced in `/etc/nsswitch.conf`) — entries are still
+  collected normally either way, this just flags that some may be
+  directory-sourced rather than genuinely local. Sudo elevation itself
+  (`echo | sudo -S`, one ticket-refresh call per computer, not per account) is
+  automatic whenever a sudo password is resolvable — reused from the login
+  credential, or from an optional `SudoCredentialSource`/`SudoCredentialParams`
+  for key-based auth. Also writes `LinuxDatabases.csv` / `LinuxSoftware.csv`
+  (systemd-unit-name signature matching, mirroring the Windows tool's
+  `DatabaseSignatures`/`SoftwareSignatures`, with `LinuxDatabases.csv` covering
+  PostgreSQL/MySQL/MariaDB/MongoDB by default — only PostgreSQL verified live
+  so far) / `LinuxServiceAccounts.csv` (every non-root service account,
+  resolved from the unit's actual running process, not systemd's own possibly
+  misleading `User=` property) / `LinuxUnrecognizedListeningPorts.csv` (any
+  listening port matching no configured signature at all — a single `ss -tlnp`
+  capture per computer, going further than the Windows tool's
+  one-probe-per-signature design). Local users also get
+  `SshPasswordLoginPossible`/`SshKeyLoginPossible` (from the account's real
+  password state, the effective `sshd` config, and its own `authorized_keys` —
+  all needing the same sudo access). Linux output is entirely separate from the
+  Windows tool's files — no shared filenames or schema.
+
+All three scripts:
+- take direct membership only (no recursive/nested-group expansion — the
+  downstream tool can walk nesting itself using the groups + members files);
+- continue past a failed domain/computer, log the error, and exit `1` at the
+  end if anything failed (so a Scheduled Task can alert on partial failure);
+- write a stable, fixed-name set of CSVs (overwritten each run) plus a
+  timestamped copy under `Output\Archive` for history, with a configurable
+  retention count.
+
 ## ADGroups.csv (Export-ADGroups.ps1)
 
 | Column | Description |
@@ -39,7 +111,7 @@ Direct members only — nested groups are **not** expanded. One row per (group, 
 ## ADComputers.csv (Export-ADGroups.ps1)
 
 One row per AD computer object found. Only produced for domains whose config entry has a
-`Computers` block (see [Configuration.md](Configuration.md#computer-object-discovery-computers)) —
+`Computers` block (see [Reference_Configuration.md](Reference_Configuration.md#computer-object-discovery-computers)) —
 empty (no rows, but the file is still written) for domains without one, and the file itself is only
 meaningful when at least one domain in the config opts in.
 
@@ -104,7 +176,7 @@ Direct members only. One row per (local group, member) pair.
 ## LocalDatabases.csv (Export-LocalGroups.ps1)
 
 One row per Windows service that matched a `DatabaseSignatures` entry (see
-[Configuration.md](Configuration.md#database-and-other-software-detection)) — not one row per
+[Reference_Configuration.md](Reference_Configuration.md#database-and-other-software-detection)) — not one row per
 computer, so a computer with no recognized database service produces no rows here at all.
 
 | Column | Description |
@@ -117,7 +189,7 @@ computer, so a computer with no recognized database service produces no rows her
 | Path | The service's binary path, exactly as registered (includes command-line arguments; quoting is whatever the service itself was registered with). |
 | StartType | Decoded from the Win32 `SERVICE_START_TYPE` value: `Boot`, `System`, `Automatic`, `Manual`, or `Disabled`. |
 | Status | Decoded from the Win32 current-state value: `Stopped`, `Running`, `Paused`, or one of the transitional states (`StartPending`, etc.). |
-| DefaultPort | The signature's configured default port, or blank when the signature deliberately has none (SQL Server named instances — see Configuration.md). |
+| DefaultPort | The signature's configured default port, or blank when the signature deliberately has none (SQL Server named instances — see Reference_Configuration.md). |
 | Listening | `True`/`False` result of probing `DefaultPort` on this computer, or blank when `DefaultPort` is blank. **A service can be `Running` with `Listening = False`** — e.g. SQL Server's TCP/IP protocol is commonly left disabled, or the engine only listens on named pipes; confirmed live during testing. `Status` and `Listening` answer two different questions (is the Windows service running vs. is the network port reachable) and should not be assumed to agree. |
 
 ## LocalDatabasesListening.csv (Export-LocalGroups.ps1)
@@ -130,7 +202,7 @@ engine is actually listening on its default port.
 ## LocalSoftware.csv (Export-LocalGroups.ps1)
 
 Same mechanism as `LocalDatabases.csv`, for arbitrary software matched against `SoftwareSignatures`
-(see [Configuration.md](Configuration.md#database-and-other-software-detection)) — empty by
+(see [Reference_Configuration.md](Reference_Configuration.md#database-and-other-software-detection)) — empty by
 default, so this file has no rows at all unless `SoftwareSignatures` is populated. One row per
 matched service, not per computer.
 
@@ -168,7 +240,7 @@ suspected gMSA/MSA — i.e. every service *except* ones running as a built-in id
 (`NT SERVICE\<name>`), or with no account at all (kernel drivers). Unlike `LocalDatabases.csv`/
 `LocalSoftware.csv`, this isn't signature-matched — every service on the computer is considered, not
 just ones matching a configured pattern, since "what runs as this account" needs to see everything.
-See [Configuration.md](Configuration.md#service-account-discovery) for the classification rules and
+See [Reference_Configuration.md](Reference_Configuration.md#service-account-discovery) for the classification rules and
 their limits.
 
 | Column | Description |
@@ -215,7 +287,7 @@ plus a `sudo`-derived `/etc/shadow` projection.
 | PasswordNeverExpires | `True` when `/etc/shadow` field 4 (max password age) is empty or the standard shadow-utils "effectively never" sentinel (≥ 99999 days); `False` when it's a smaller real number; blank under the same conditions as `PasswordState`. |
 | DirectoryJoined | `True` when this computer appears to be joined to a directory service (`sssd` actually active with a real `/etc/sssd/sssd.conf`, or `winbind` actually active) — **not** merely whether `/etc/nsswitch.conf` mentions `sss` (confirmed live: that alone is unreliable — a base image can reference it with `sssd` never actually configured/active). Informational only: users/groups are still collected normally either way; this just flags that some entries on a `True` computer may be directory-sourced rather than genuinely local. |
 | SshPasswordLoginPossible | `True` when the account could actually log in over SSH with a password: effective `PasswordAuthentication` is `yes` (from `sudo -n sshd -T`, the fully-resolved config — not a `sshd_config` grep, which would miss anything left at a compiled-in default), the account has a real usable password (`PasswordState = PasswordSet`), its shell is in `/etc/shells`, and — for `root` specifically — `PermitRootLogin` isn't set to a password-blocking value. Blank/`Unknown` when the connecting account had no sudo access to read the effective sshd config or `PasswordState` itself. |
-| SshKeyLoginPossible | `True` when the account could log in over SSH with a key: effective `PubkeyAuthentication` is `yes`, its `~/.ssh/authorized_keys` file exists and is non-empty (checked via `sudo -n test -s`, needed to read another account's `0700` home directory), and its shell is in `/etc/shells`. **Only the default `~/.ssh/authorized_keys` path is checked** — a customized `AuthorizedKeysFile` directive in `sshd_config` isn't accounted for (see [Open-Items.md](Open-Items.md)). Blank/`Unknown` when the connecting account had no sudo access to check. |
+| SshKeyLoginPossible | `True` when the account could log in over SSH with a key: effective `PubkeyAuthentication` is `yes`, its `~/.ssh/authorized_keys` file exists and is non-empty (checked via `sudo -n test -s`, needed to read another account's `0700` home directory), and its shell is in `/etc/shells`. **Only the default `~/.ssh/authorized_keys` path is checked** — a customized `AuthorizedKeysFile` directive in `sshd_config` isn't accounted for (see [Planning_Open-Items.md](Planning_Open-Items.md)). Blank/`Unknown` when the connecting account had no sudo access to check. |
 
 ## LinuxLocalGroups.csv (Export-LocalLinuxGroups.ps1)
 
@@ -265,7 +337,7 @@ accounts' rights at all, and every row on that computer will read `Unknown`.
 ## LinuxDatabases.csv (Export-LocalLinuxGroups.ps1)
 
 One row per systemd service unit that matched a `DatabaseSignatures` entry (see
-[Configuration.md](Configuration.md#linux-database-and-other-software-detection)) — not one row per
+[Reference_Configuration.md](Reference_Configuration.md#linux-database-and-other-software-detection)) — not one row per
 computer, so a computer with no recognized database service produces no rows here at all. A
 templated unit can legitimately produce two rows for what's conceptually one engine — confirmed
 live: Debian/Ubuntu's PostgreSQL package registers both `postgresql.service` (a thin wrapper) and
@@ -282,12 +354,12 @@ the actual instantiated `postgresql@18-main.service`, and both match the `postgr
 | StartType | The unit's `UnitFileState` (e.g. `enabled`, `enabled-runtime`, `disabled`, `static`, `masked`) — confirmed live to have more than the four commonly-documented values (`enabled-runtime` seen on the instantiated PostgreSQL unit). |
 | Path | The unit's raw `ExecStart` property text (includes the full wrapper command line where one exists, e.g. `pg_ctlcluster`) — not simplified, since simplifying it risks losing real detail (like which wrapper actually launched the engine). |
 | DefaultPort | The signature's configured default port, or blank when the signature has none. |
-| Listening | `True`/`False` result of checking `DefaultPort` against a single `ss -tlnp` capture for that computer, or blank when `DefaultPort` is blank **or** the connecting account had no usable sudo access to run `ss -tlnp` at all (a `WARN` is logged in that case — see [Configuration.md](Configuration.md#sudo-dependent-fields-and-elevation)). |
+| Listening | `True`/`False` result of checking `DefaultPort` against a single `ss -tlnp` capture for that computer, or blank when `DefaultPort` is blank **or** the connecting account had no usable sudo access to run `ss -tlnp` at all (a `WARN` is logged in that case — see [Reference_Configuration.md](Reference_Configuration.md#sudo-dependent-fields-and-elevation)). |
 
 ## LinuxSoftware.csv (Export-LocalLinuxGroups.ps1)
 
 Same mechanism as `LinuxDatabases.csv`, for arbitrary software matched against `SoftwareSignatures`
-(see [Configuration.md](Configuration.md#linux-database-and-other-software-detection)) — empty by
+(see [Reference_Configuration.md](Reference_Configuration.md#linux-database-and-other-software-detection)) — empty by
 default, so this file has no rows at all unless `SoftwareSignatures` is populated. One row per
 matched unit, not per computer.
 

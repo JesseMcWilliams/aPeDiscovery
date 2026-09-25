@@ -10,11 +10,11 @@ each design doc's own Section 10/Revision log is kept current.
 
 Last updated: 2026-09-17 (Round 14: per-account SSH-login eligibility implemented and verified live
 with no new bugs found — the only remaining Linux item is now `BadPasswordAttempts`; see
-[Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) Section 9, Round 14).
+[Archive_Design_Local-Linux-Discovery-Revision-Log.md](Archive_Design_Local-Linux-Discovery-Revision-Log.md), Round 14).
 
 ## Linux discovery (`Export-LocalLinuxGroups.ps1`)
 
-See [Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) for full detail on all of
+See [Design_Local-Linux-Discovery.md](Design_Local-Linux-Discovery.md) for full detail on all of
 these.
 
 **Not yet built (the only remaining Linux item):**
@@ -30,7 +30,7 @@ these.
 **Recently resolved:**
 - ~~Per-account SSH-login eligibility~~ — **implemented and verified live (Round 14)**:
   `SshPasswordLoginPossible`/`SshKeyLoginPossible` on every `LinuxLocalUsers.csv` row, confirmed
-  against real, previously-known ground truth (`CAscanner`'s and `ladmin`'s results both matched
+  against real, previously-known ground truth (`the NOPASSWD sudo test account`'s and `the lab admin account`'s results both matched
   facts already established earlier in this project) - the first clean implementation with no bugs
   found.
 - ~~Phase 5~~ — **implemented and verified live (Round 13)**: `LinuxDatabases.csv`,
@@ -46,7 +46,7 @@ these.
 
 **Needs your environment to finish verifying:**
 - ~~A test account with genuinely password-required sudo rights~~ — **resolved (Round 10)**: the
-  user configured `CAscanner2` via CyberArk CP; `LinuxSudoRights.csv`'s `PasswordRequired`
+  user configured `the password-required sudo test account` via CyberArk CP; `LinuxSudoRights.csv`'s `PasswordRequired`
   classification is confirmed correct against it. Only the actual password-supply mechanism itself
   (above) remains unbuilt/unexercised.
 - **MySQL/MariaDB/MongoDB `DatabaseSignatures` are unverified** — only PostgreSQL is installed on the
@@ -60,7 +60,7 @@ these.
 
 ## Windows local discovery (`Export-LocalGroups.ps1`)
 
-See [Design-Local-Windows-Discovery.md](Design-Local-Windows-Discovery.md) Section 9 for full detail.
+See [Design_Local-Windows-Discovery.md](Design_Local-Windows-Discovery.md) Section 9 for full detail.
 
 - Should job creation be throttled to launch only `MaxConcurrency` jobs at a time (rather than one
   `PowerShell` instance per computer up front), to bound memory on a very large computer list? Not a
@@ -86,7 +86,7 @@ See [Design-Local-Windows-Discovery.md](Design-Local-Windows-Discovery.md) Secti
 
 ## AD discovery (`Export-ADGroups.ps1`)
 
-See [Design-AD-Discovery.md](Design-AD-Discovery.md) Section 9 for full detail.
+See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
 
 - Should Azure AD / Entra ID group export be added as a second data source feeding the same output
   shape? Currently on-prem AD only.
@@ -108,7 +108,7 @@ See [Design-AD-Discovery.md](Design-AD-Discovery.md) Section 9 for full detail.
 - **`CredentialResolver.psm1`'s `CCP` and `Conjur` sources remain unverified against a real
   deployment** — only `CurrentUser`/`PSCredential`/`CP` have been exercised live so far. `CP` was
   verified end-to-end on 2026-09-17 (see the Linux section above and
-  [Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) Section 9, Round 10) and that
+  [Archive_Design_Local-Linux-Discovery-Revision-Log.md](Archive_Design_Local-Linux-Discovery-Revision-Log.md), Round 10) and that
   testing found and fixed a real output-parsing bug — worth treating `CCP`/`Conjur` with the same
   suspicion until they get the same live-testing treatment, rather than assuming their
   documented-pattern implementation is correct as written.
@@ -119,4 +119,4 @@ See [Design-AD-Discovery.md](Design-AD-Discovery.md) Section 9 for full detail.
   it), but worth revisiting if a third platform (e.g. macOS) is ever added.
 - No automated test suite (Pester or otherwise) exists for any of the three scripts — all
   verification to date has been manual, live testing against real targets (see
-  [Testing-Guide.md](Testing-Guide.md)) plus one isolated mock-object test for AD computer discovery.
+  [Testing_Guide.md](Testing_Guide.md)) plus one isolated mock-object test for AD computer discovery.

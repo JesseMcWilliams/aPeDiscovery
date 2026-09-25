@@ -21,7 +21,7 @@
     within an otherwise-scanned base), IncludeGroupCategories/IncludeGroupScopes
     (only Security/Distribution, or only DomainLocal/Global/Universal groups),
     and ExcludeGroupNames (exact names or wildcard patterns, matched against
-    SamAccountName). See Docs\Configuration.md.
+    SamAccountName). See Claude_Docs\Reference_Configuration.md.
 
     Computer object discovery is opt-in per domain: only runs when that domain's
     config entry has a 'Computers' property (even an empty object enables it with
@@ -33,7 +33,7 @@
     'operatingSystem' attribute, which a computer sets itself at domain-join
     time and only refreshes periodically - it can be blank or stale, not a
     live, verified fact about what's actually running today. See
-    Docs\Configuration.md.
+    Claude_Docs\Reference_Configuration.md.
 #>
 [CmdletBinding()]
 param(

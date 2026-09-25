@@ -21,7 +21,7 @@ a separate/lighter-weight test method invented just for this guide.
 ```
 Check: exit code `0`, `ADGroups.csv`/`ADGroupMembers.csv` written with rows for that domain only, and
 the log (`<OutputDirectory>\Logs`) has no `ERROR` lines. If it fails, check `CredentialSource`/
-`CredentialParams` for that domain first (see [Configuration.md](Configuration.md#credential-sources)),
+`CredentialParams` for that domain first (see [Reference_Configuration.md](Reference_Configuration.md#credential-sources)),
 then `Server` (an explicit DC/GC may be required for an untrusted domain).
 
 ### 1.2 OU scoping (`BaseOU`/`OUDepth`/`ExcludeOUs`)
@@ -107,11 +107,11 @@ Run against a computer with a known database engine installed (e.g. SQL Server o
 confirm a matching row appears in `LocalDatabases.csv` with the correct `Engine`/`ServiceName`. Check
 `Listening` against what you actually expect (`Test-NetConnection <host> -Port <DefaultPort>` from
 the scanning host as an independent check) — remember `Status = Running` does not guarantee
-`Listening = True` (see [Configuration.md](Configuration.md#database-and-other-software-detection)).
+`Listening = True` (see [Reference_Configuration.md](Reference_Configuration.md#database-and-other-software-detection)).
 Confirm `LocalDatabasesListening.csv` contains exactly the subset where `Listening = True`. Add a
 `SoftwareSignatures` entry (e.g. the `RemoteDesktop`/`TermService` example from
 `LocalScanConfig.example.json`) and confirm the equivalent behavior in `LocalSoftware.csv`. See
-[Configuration.md](Configuration.md#adding-a-new-signature-database-or-software) for the full
+[Reference_Configuration.md](Reference_Configuration.md#adding-a-new-signature-database-or-software) for the full
 "add a new signature" steps if testing one not already in the default list.
 
 ### 2.6 Service account discovery
@@ -202,7 +202,7 @@ None`. For one with a `NOPASSWD` rule, confirm `SudoAccess = PasswordlessSomeOrA
 `RawSudoListOutput` contains the literal rule text. For one with only password-required rules (no
 `NOPASSWD` at all), confirm `SudoAccess = PasswordRequired`. If the connecting account itself lacks
 broad (`ALL`) sudo rights, expect every row to read `Unknown` instead — this is a real constraint of
-how `sudo -n -l -U` works, not a bug (see [Configuration.md](Configuration.md#sudo-dependent-fields)).
+how `sudo -n -l -U` works, not a bug (see [Reference_Configuration.md](Reference_Configuration.md#sudo-dependent-fields)).
 
 ### 3.7 Directory-join detection (`DirectoryJoined`)
 
@@ -279,6 +279,6 @@ being unavailable, and the scan still succeeding.
 ## 4. Things this guide deliberately does not cover
 
 `BadPasswordAttempts` for Linux accounts is designed but not yet built, so there's no test procedure
-for it here — see [Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) Section 8. It's
+for it here — see [Design_Local-Linux-Discovery.md](Design_Local-Linux-Discovery.md) Section 8. It's
 the only remaining unbuilt item in the Linux design; add a section here once it's implemented,
 following the same "one real target, inspect the CSV directly, then scale up" pattern used above.

@@ -2,7 +2,7 @@ function script:ConvertTo-LinuxPasswordState {
     <#
     .SYNOPSIS
         Classifies a /etc/shadow field-2 value per the states confirmed live against a real Linux
-        VM (see Docs\Design-Local-Linux-Discovery.md, Section 6).
+        VM (see Claude_Docs\Design_Local-Linux-Discovery-Data-Model.md, Section 6).
     #>
     param([string] $ShadowField2)
 
@@ -76,7 +76,8 @@ function Get-DefaultLinuxDatabaseSignatures {
         Modules\LocalComputerScanner.psm1's Get-DefaultDatabaseSignatures for the Windows tool.
     .NOTES
         Only PostgreSQL (`postgresql*`) has been verified against a real installed engine (see
-        Docs\Design-Local-Linux-Discovery.md Section 6b/9, Round 7). MySQL/MariaDB/MongoDB entries
+        Claude_Docs\Design_Local-Linux-Discovery-Data-Model.md Section 6b, and
+        Claude_Docs\Archive_Design_Local-Linux-Discovery-Revision-Log.md, Round 7). MySQL/MariaDB/MongoDB entries
         are starter guesses at the standard Debian/Ubuntu package unit names, flagged as unverified -
         no such engine has been available on the test VM to confirm against.
     #>
@@ -147,7 +148,7 @@ function Invoke-LocalLinuxComputerScan {
         shadow/sudo sections simply come back as sudo's own "not allowed" text instead of hanging -
         this is treated as "no data available", not a scan failure.
 
-        Sudo elevation (decided 2026-09-17 - see Docs\Design-Local-Linux-Discovery.md Section 5a,
+        Sudo elevation (decided 2026-09-17 - see Claude_Docs\Design_Local-Linux-Discovery-Sudo-Elevation.md,
         Round 11): a resolved sudo password (reused from the primary credential when it's
         password-based, or from SudoCredentialSource/SudoCredentialParams when the primary is
         key-based or an explicit override is configured) is piped into ONE `sudo -S -p '' -v` ticket
@@ -200,7 +201,7 @@ function Invoke-LocalLinuxComputerScan {
         requires PubkeyAuthentication=yes, a non-empty `~/.ssh/authorized_keys` (checked via `sudo -n
         test -s`, needed to read another account's 0700 home directory), and the same interactive-
         shell requirement. Simplification: only the default `~/.ssh/authorized_keys` path is checked,
-        not a customized `AuthorizedKeysFile` directive - see Docs\Open-Items.md. Both fields are left
+        not a customized `AuthorizedKeysFile` directive - see Claude_Docs\Planning_Open-Items.md. Both fields are left
         `$null` (not `False`) when the underlying data couldn't be obtained (no sudo), so a downstream
         consumer can distinguish "confirmed not possible" from "unknown".
     .NOTES

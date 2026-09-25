@@ -39,7 +39,7 @@
     higher, so there is only one code path for what a "scan" means.
 
     Config can narrow what's captured: ExcludeUserNames/ExcludeGroupNames
-    (exact names or wildcard patterns). See Docs\Configuration.md.
+    (exact names or wildcard patterns). See Claude_Docs\Reference_Configuration.md.
 
     Also detects known database engines from their Windows service names (the same WinNT bind
     already exposes Service-class children, confirmed live - no extra connectivity needed), and
@@ -52,7 +52,7 @@
     LocalScanConfig.json (service name pattern -> name/category/optional default port) - unlike
     DatabaseSignatures, there is no built-in default list, since what counts as interesting "other
     software" is inherently environment-specific; nothing is checked unless SoftwareSignatures is
-    populated. See Docs\Configuration.md for the steps to add entries to either list.
+    populated. See Claude_Docs\Reference_Configuration.md for the steps to add entries to either list.
 
     A computer that fails is retried up to RetryCount additional times (default 0 - no retry),
     waiting RetryDelaySeconds between attempts, before being recorded as failed - useful for

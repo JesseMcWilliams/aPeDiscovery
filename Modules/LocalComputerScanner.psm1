@@ -312,7 +312,7 @@ function Invoke-LocalComputerScan {
                         # Checked independently, not else-if: a service could plausibly match both a
                         # database and a general-software signature, and each list is maintained for
                         # a different purpose (see DatabaseSignatures/SoftwareSignatures in
-                        # Docs\Configuration.md), so neither check should suppress the other.
+                        # Claude_Docs\Reference_Configuration.md), so neither check should suppress the other.
                         $dbSignature = $DatabaseSignatures | Where-Object { $serviceName -like $_.ServicePattern } | Select-Object -First 1
                         if ($dbSignature) {
                             $portListening = $null

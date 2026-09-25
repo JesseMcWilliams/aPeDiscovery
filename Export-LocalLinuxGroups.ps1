@@ -51,7 +51,7 @@
     Sudo elevation itself (echo | sudo -S, a single ticket-refresh call per computer
     rather than once per account) is automatic whenever a sudo password is
     resolvable - see Modules\LocalLinuxComputerScanner.psm1 and
-    Docs\Configuration.md's "Sudo-dependent fields and elevation" section for the
+    Claude_Docs\Reference_Configuration.md's "Sudo-dependent fields and elevation" section for the
     SudoCredentialSource/SudoCredentialParams config needed for key-based auth.
 
     Database/software detection matches systemd unit names against
@@ -71,7 +71,7 @@
     and, for any listening port matching no configured signature at all, produces
     a LinuxUnrecognizedListeningPorts.csv row.
 
-    This covers Phase 1-5 of Docs\Design-Local-Linux-Discovery.md. Still
+    This covers Phase 1-5 of Claude_Docs\Design_Local-Linux-Discovery.md. Still
     design-only: per-account SSH login eligibility and BadPasswordAttempts - see
     the design doc's Progress Tracker for what's left.
 
