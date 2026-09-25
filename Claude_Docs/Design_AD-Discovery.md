@@ -7,8 +7,8 @@ data, across one or more domains — including domains with no trust relationshi
 the scan — for import into a separate downstream tool.
 
 This document describes the design behind `Export-ADGroups.ps1`. See
-[Configuration.md](Configuration.md) for the full config schema and
-[CSV-Schemas.md](CSV-Schemas.md) for exact output columns; this doc focuses on the *why* behind the
+[Reference_Configuration.md](Reference_Configuration.md) for the full config schema and
+[Reference_CSV-Schemas.md](Reference_CSV-Schemas.md) for exact output columns; this doc focuses on the *why* behind the
 shape of the thing, not a field-by-field reference.
 
 ---

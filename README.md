@@ -11,93 +11,14 @@ identity. Credential resolution itself lives in the sibling
 `Get-ResolvedCredential`) — this repo depends on it rather than carrying its
 own copy.
 
-## Scripts
+## Features
 
-- **Export-ADGroups.ps1** — reads `Config\ScanConfig.json`, scans one or more
-  domains for groups (optionally scoped to a base OU and OU depth, with
-  optional per-domain `ExcludeOUs`/`IncludeGroupCategories`/
-  `IncludeGroupScopes`/`ExcludeGroupNames` filters), and writes
-  `ADGroups.csv` / `ADGroupMembers.csv`. Also supports opt-in per-domain
-  computer object discovery (a `Computers` config block, independently scoped
-  from the group scan, filterable by `NameFilter`/`OSTypeFilter`), writing
-  `ADComputers.csv`.
-- **Export-LocalGroups.ps1** — reads a list of computers from
-  `Config\ComputersToScan.csv` (each row can point at a different credential
-  source), scans them concurrently (throttled by `MaxConcurrency`, with a
-  TCP-445 reachability check and optional `ExcludeUserNames`/
-  `ExcludeGroupNames` filters), and writes `LocalUsers.csv` / `LocalGroups.csv`
-  / `LocalGroupMembers.csv` / `LocalDatabases.csv` (known database engines
-  recognized by Windows service name, each with a live check of whether its
-  default port is actually listening) / `LocalSoftware.csv` (same mechanism,
-  for any other software you configure via `SoftwareSignatures` — empty by
-  default) / `LocalScanErrors.csv` (one row per computer that still failed
-  after any configured `RetryCount` retries) / `LocalServiceAccounts.csv`
-  (every service running as a real local/domain user or suspected gMSA/MSA —
-  answers "what services run as this account" across the estate). Local
-  accounts also get `PasswordLastSet`/`PasswordExpired`/`BadPasswordAttempts`
-  in `LocalUsers.csv`. Two derived, filtered views are also written — every
-  row in each still appears in its source file too: `LocalDatabasesListening.csv`
-  (only `Listening = True` rows) and `LocalGmsaServiceAccounts.csv` (only
-  `AccountType = LikelyGmsaOrMsa` rows, meant to feed a downstream AD
-  cross-reference that flags any account not actually a real gMSA/MSA).
-- **Export-LocalLinuxGroups.ps1** — reads a list of computers from
-  `Config\LinuxComputersToScan.csv` (password or key-based SSH auth per row,
-  resolved via the same aPeSecrets `CredentialResolver.psm1`, plus an optional
-  `KeyFilePath`), scans them concurrently over SSH (`Posh-SSH`, throttled by
-  `MaxConcurrency`, same `RunspacePool` design as `Export-LocalGroups.ps1`,
-  with a TCP-22 reachability check), and writes `LinuxLocalUsers.csv` /
-  `LinuxLocalGroups.csv` / `LinuxLocalGroupMembers.csv` / `LinuxSudoRights.csv`
-  (every discovered account's sudo access —
-  `None`/`PasswordlessSomeOrAll`/`PasswordRequired` — plus the full rule text)
-  / `LinuxScanErrors.csv`. Local users also get `PasswordState`/
-  `PasswordLastSet`/`PasswordNeverExpires` when the connecting account has
-  usable `sudo` access (left blank otherwise, rather than failing the scan).
-  Users and groups also carry a `DirectoryJoined` flag (SSSD/Winbind actually
-  active, not just referenced in `/etc/nsswitch.conf`) — entries are still
-  collected normally either way, this just flags that some may be
-  directory-sourced rather than genuinely local. Sudo elevation itself
-  (`echo | sudo -S`, one ticket-refresh call per computer, not per account) is
-  automatic whenever a sudo password is resolvable — reused from the login
-  credential, or from an optional `SudoCredentialSource`/`SudoCredentialParams`
-  for key-based auth. Also writes `LinuxDatabases.csv` / `LinuxSoftware.csv`
-  (systemd-unit-name signature matching, mirroring the Windows tool's
-  `DatabaseSignatures`/`SoftwareSignatures`, with `LinuxDatabases.csv` covering
-  PostgreSQL/MySQL/MariaDB/MongoDB by default — only PostgreSQL verified live
-  so far) / `LinuxServiceAccounts.csv` (every non-root service account,
-  resolved from the unit's actual running process, not systemd's own possibly
-  misleading `User=` property) / `LinuxUnrecognizedListeningPorts.csv` (any
-  listening port matching no configured signature at all — a single `ss -tlnp`
-  capture per computer, going further than the Windows tool's
-  one-probe-per-signature design). Local users also get
-  `SshPasswordLoginPossible`/`SshKeyLoginPossible` (from the account's real
-  password state, the effective `sshd` config, and its own `authorized_keys` —
-  all needing the same sudo access). Linux output is entirely separate from the
-  Windows tool's files — no shared filenames or schema.
+- **Export-ADGroups.ps1** — AD group/membership export, with optional per-domain computer object discovery.
+- **Export-LocalGroups.ps1** — per-computer local Windows user/group/membership export, plus database/software/service-account detection.
+- **Export-LocalLinuxGroups.ps1** — per-computer local Linux user/group/membership export over SSH, plus sudo rights discovery/elevation and database/software/service-account detection.
+- All three scan concurrently, continue past a failed domain/computer (logging the error and exiting `1` at the end if anything failed, so a Scheduled Task can alert), and write a stable fixed-name CSV set plus a timestamped archive copy.
 
-All three scripts:
-- take direct membership only (no recursive/nested-group expansion — the
-  downstream tool can walk nesting itself using the groups + members files);
-- continue past a failed domain/computer, log the error, and exit `1` at the
-  end if anything failed (so a Scheduled Task can alert on partial failure);
-- write a stable, fixed-name set of CSVs (overwritten each run) plus a
-  timestamped copy under `Output\Archive` for history, with a configurable
-  retention count.
-
-See [Docs/CSV-Schemas.md](Docs/CSV-Schemas.md) for exact column layouts,
-[Docs/Configuration.md](Docs/Configuration.md) for every config/credential
-option, [Docs/Testing-Guide.md](Docs/Testing-Guide.md) for step-by-step
-validation procedures for every feature, and [Docs/Open-Items.md](Docs/Open-Items.md)
-for the current project-wide backlog.
-
-## Design documents
-
-- [Docs/Design-AD-Discovery.md](Docs/Design-AD-Discovery.md) — implemented.
-- [Docs/Design-Local-Windows-Discovery.md](Docs/Design-Local-Windows-Discovery.md) — implemented.
-- [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md) — Phases 1-5
-  implemented and verified live against a real Ubuntu VM: connectivity, concurrency,
-  users/groups/membership, password-state fields, sudo rights discovery and elevation,
-  database/software/service-account detection, and per-account SSH-login eligibility.
-  `BadPasswordAttempts` remains designed but not yet built — the only unbuilt item left.
+See [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md) for the full per-script/per-file breakdown and exact column layouts.
 
 ## Prerequisites
 
@@ -143,7 +64,7 @@ for the current project-wide backlog.
    .\Export-LocalLinuxGroups.ps1 -ComputerFilter 'lnx-app01.contoso.com'
    ```
 5. Once validated, wire the scripts into Scheduled Tasks — see
-   [Docs/Scheduled-Task-Setup.md](Docs/Scheduled-Task-Setup.md).
+   [User_Docs/Scheduled-Task-Setup.md](User_Docs/Scheduled-Task-Setup.md).
 
 ## Repository layout
 
@@ -163,15 +84,17 @@ Config\
   LocalScanConfig.example.json           Template for Export-LocalGroups.ps1 run settings
   LinuxComputersToScan.example.csv       Template for Export-LocalLinuxGroups.ps1 input
   LinuxScanConfig.example.json           Template for Export-LocalLinuxGroups.ps1 run settings
-Docs\
-  Configuration.md                     Full config/credential-source reference
-  CSV-Schemas.md                       Output column reference
+Claude_Docs\
+  Reference_Configuration.md                     Full config/credential-source reference
+  Reference_CSV-Schemas.md                       Script/output column reference
+  Testing_Guide.md                     Step-by-step validation procedures for every feature
+  Planning_Open-Items.md                        Project-wide backlog: open decisions, unbuilt features, verification gaps
+  Design_AD-Discovery.md               Design doc - AD group export (implemented)
+  Design_Local-Windows-Discovery.md    Design doc - local Windows discovery (implemented)
+  Design_Local-Linux-Discovery.md      Design doc - local Linux discovery, plus split-out
+                                        Sudo-Elevation/Data-Model docs (mostly implemented)
+User_Docs\
   Scheduled-Task-Setup.md              Unattended scheduling guidance
-  Testing-Guide.md                     Step-by-step validation procedures for every feature
-  Open-Items.md                        Project-wide backlog: open decisions, unbuilt features, verification gaps
-  Design-AD-Discovery.md               Design doc - AD group export (implemented)
-  Design-Local-Windows-Discovery.md    Design doc - local Windows discovery (implemented)
-  Design-Local-Linux-Discovery.md      Design doc - local Linux discovery (mostly implemented)
 Output\                     Default (gitignored) output/log/archive location
 ```
 
@@ -185,85 +108,18 @@ need to stay checked out as siblings under the same parent folder.
 domain/computer names and credential-source parameters — commit only the
 `.example` templates.
 
-## Known limitations / things to verify for your environment
+## Documentation
 
-- **CP/CCP/Conjur integration** implements each product's documented calling
-  convention (`CLIPasswordSDK.exe`, the CCP `AIMWebService` REST API, Conjur's
-  `authn` + `secrets` REST API), but exact details vary by product version and
-  environment (install paths, web service virtual directory names, TLS/cert
-  requirements). Validate against your own deployment before production use —
-  see the note at the top of aPeSecrets's
-  [Modules\CredentialResolver.psm1](../aPeSecrets/Modules/CredentialResolver.psm1) and its
-  [Docs\Configuration.md](../aPeSecrets/Docs/Configuration.md).
-- **AD's 1,500-value range limit** on the `member` attribute can make
-  `MemberCount` (and the raw-DN membership fallback path) incomplete for
-  groups with very large direct membership; the primary membership-resolution
-  path (`Get-ADGroupMember`) is not affected.
-- **DN parsing for OU depth** treats a comma preceded by `\` as an escaped
-  literal rather than a component separator, which covers the common case of
-  commas inside OU/CN names but is not a full LDAP DN parser.
-- **Computer object discovery** (`ADComputers.csv`, opt-in via a `Computers`
-  block per domain) reports AD's `operatingSystem`/`operatingSystemVersion`
-  and `lastLogonTimestamp` attributes as-is — these are self-reported and only
-  periodically refreshed/replicated by AD itself, not live facts about what's
-  actually running or when a machine was last used. This feature also hasn't
-  been tested against a live domain controller (no AD environment was
-  available while building it) — verify with `-DomainFilter` against one
-  domain before relying on it.
-- `Export-ADGroups.ps1` still scans domains sequentially (no concurrency).
-  `Export-LocalGroups.ps1` scans computers concurrently via `MaxConcurrency`,
-  but launches one `PowerShell` instance per computer up front rather than
-  trickling them in — fine at the scale this has been tested at, worth
-  revisiting for a single run covering tens of thousands of computers.
-- Local Windows discovery deliberately does not resolve primary-group
-  membership (tested live: local accounts' `primaryGroupID` resolves to no
-  real local group, so the column would be blank almost everywhere) or
-  distinguish GPO-managed local admin membership from manually-set membership
-  (the tool already captures the effective result either way) — see
-  [Docs/Design-Local-Windows-Discovery.md](Docs/Design-Local-Windows-Discovery.md)
-  §7 for the reasoning behind both decisions.
-- Database and software detection only recognize the specific service-name
-  patterns configured in `DatabaseSignatures` (SQL Server, MySQL, MariaDB,
-  PostgreSQL, Oracle, MongoDB by default) and `SoftwareSignatures` (empty by
-  default — see [Docs/Configuration.md](Docs/Configuration.md#database-and-other-software-detection)
-  for the steps to add your own). Anything outside those lists, or installed
-  with unusual service naming, won't be detected. `Listening = False` does not
-  mean "not installed" (confirmed live: a `Running` SQL Server showed
-  `Listening = False`, likely TCP/IP protocol disabled), and a listening port
-  doesn't guarantee it's actually that engine/software.
-- **`DatabaseSignatures`/`SoftwareSignatures` in config replace the built-in
-  default list rather than merging with it** — adding one engine to the
-  defaults means copying the full default list into your config first (see
-  Configuration.md).
-- **`PasswordLastSet` is approximate**, derived from the target's own
-  `PasswordAge` applied against the scanning host's clock — fine for spotting
-  a stale password, not precise to the minute given ordinary clock skew.
-- **Retry (`RetryCount`) re-runs the entire per-computer scan**, not just the
-  step that failed, and `LocalScanErrors.csv` records only the final outcome
-  per computer, not one row per attempt (per-attempt detail is in the log).
-- **`LocalServiceAccounts.csv`'s gMSA/MSA flag is a naming-convention
-  heuristic** (a trailing `$`), not an authoritative AD lookup — see
-  [Docs/Configuration.md](Docs/Configuration.md#service-account-discovery).
-  This file always lists every non-built-in/non-virtual service account
-  across the estate; there's currently no way to narrow it to specific
-  account name(s) of interest.
-- Scheduled Task Run As credential storage, secrets-at-rest for
-  `ApiKeyPath`/`CredentialFilePath` files, and file-system ACLs on
-  `Config\`/`Output\`/any secrets directory are the operator's
-  responsibility — this project does not manage those.
-- **`Export-LocalLinuxGroups.ps1` does not yet collect `BadPasswordAttempts`** —
-  designed (see [Docs/Design-Local-Linux-Discovery.md](Docs/Design-Local-Linux-Discovery.md))
-  but not yet built; it's the only remaining unbuilt item in the Linux design.
-  Any sudo-derived field (password state, sudo rights, `Listening`/
-  unrecognized-port checks, SSH-login eligibility) requires the *connecting*
-  account to have a resolvable sudo credential (broad `ALL` rights for
-  `LinuxSudoRights.csv` specifically); without one, those fields are left blank
-  rather than failing the scan. `LinuxDatabases.csv`'s built-in signatures
-  beyond PostgreSQL (MySQL/MariaDB/MongoDB) are unverified starter guesses — no
-  such engine has been available on the test VM to confirm against.
-  `SshKeyLoginPossible` only checks the default `~/.ssh/authorized_keys` path,
-  not a customized `AuthorizedKeysFile` directive. Actually supplying a sudo
-  password for the password-required elevation case is fully implemented and
-  verified, but the `SudoCredentialSource` override path (for key-based SSH
-  auth) has not been separately verified live for lack of a matching test
-  scenario.
+- [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md) — per-script behavior and exact output column layouts.
+- [Claude_Docs/Reference_Configuration.md](Claude_Docs/Reference_Configuration.md) — every config/credential option, plus known limitations and things to verify for your environment.
+- [Claude_Docs/Testing_Guide.md](Claude_Docs/Testing_Guide.md) — step-by-step validation procedures for every feature.
+- [Claude_Docs/Planning_Open-Items.md](Claude_Docs/Planning_Open-Items.md) — current project-wide backlog.
+- [User_Docs/Scheduled-Task-Setup.md](User_Docs/Scheduled-Task-Setup.md) — unattended scheduling setup.
+- Design documents (how each discovery target works):
+  - [Claude_Docs/Design_AD-Discovery.md](Claude_Docs/Design_AD-Discovery.md) — implemented.
+  - [Claude_Docs/Design_Local-Windows-Discovery.md](Claude_Docs/Design_Local-Windows-Discovery.md) — implemented.
+  - [Claude_Docs/Design_Local-Linux-Discovery.md](Claude_Docs/Design_Local-Linux-Discovery.md) — Phases 1-5
+    implemented and verified live against a real Ubuntu VM (see also its split-out
+    [Sudo-Elevation](Claude_Docs/Design_Local-Linux-Discovery-Sudo-Elevation.md) and
+    [Data-Model](Claude_Docs/Design_Local-Linux-Discovery-Data-Model.md) docs).
+    `BadPasswordAttempts` remains designed but not yet built — the only unbuilt item left.

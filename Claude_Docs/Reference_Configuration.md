@@ -153,7 +153,7 @@ local account, read from the same WinNT bind (no configuration needed — always
 is computed as this host's current time minus the account's `PasswordAge` (seconds since last
 change, as the *target* computer's clock measured it), so it's an approximate absolute date, subject
 to ordinary clock skew between the scanning host and the target — not a precise timestamp read
-directly off the target. See [CSV-Schemas.md](CSV-Schemas.md) for the full column reference.
+directly off the target. See [Reference_CSV-Schemas.md](Reference_CSV-Schemas.md) for the full column reference.
 
 ### Retrying failed computers
 
@@ -311,7 +311,7 @@ If neither applies (key-based auth with no `SudoCredentialSource` configured), o
 credential is wrong, elevation simply isn't attempted/fails — confirmed live to fail cleanly and fast
 either way (`sudo -n`/`sudo -S` never hang), leaving the sudo-dependent fields blank/`Unknown` rather
 than failing the whole computer's scan. See
-[Design-Local-Linux-Discovery.md](Design-Local-Linux-Discovery.md) Section 5a for the full design,
+[Design_Local-Linux-Discovery-Sudo-Elevation.md](Design_Local-Linux-Discovery-Sudo-Elevation.md) for the full design,
 including why a single ticket-refresh call is used instead of piping the password before every
 individual `sudo` invocation, and the real bugs found while verifying it end-to-end.
 
@@ -322,7 +322,7 @@ three input files (`ComputersToScan.csv`, `LinuxComputersToScan.csv`, and `ScanC
 per-domain entries), and are resolved by the sibling
 [aPeSecrets](../../aPeSecrets) project's `Modules\CredentialResolver.psm1`
 (`Get-ResolvedCredential`) — see its own
-[Docs\Configuration.md](../../aPeSecrets/Docs/Configuration.md) for the full parameter reference
+[Claude_Docs\Reference_Configuration.md](../../aPeSecrets/Claude_Docs/Reference_Configuration.md) for the full parameter reference
 per source (`CurrentUser`, `PSCredential`, `WindowsCredentialManager`, `CP`, `CCP`, `Conjur`) and
 what's actually been live-verified. This project passes `CredentialParams`/`CredentialParamsJson`
 straight through as aPeSecrets's `Params` hashtable, unchanged.
@@ -336,3 +336,86 @@ this project's own scanner module rather than by `CredentialResolver.psm1`:
 ## Why per-domain and per-computer credentials are separate
 
 Some target domains have no trust relationship with the domain the scheduled task's host belongs to, so a single set of credentials can't reach every domain. `ScanConfig.json` therefore carries its own `CredentialSource`/`CredentialParams` per domain, and `ComputersToScan.csv` carries its own per computer, rather than either script relying on one shared identity.
+
+## Known limitations / things to verify for your environment
+
+- **CP/CCP/Conjur integration** implements each product's documented calling
+  convention (`CLIPasswordSDK.exe`, the CCP `AIMWebService` REST API, Conjur's
+  `authn` + `secrets` REST API), but exact details vary by product version and
+  environment (install paths, web service virtual directory names, TLS/cert
+  requirements). Validate against your own deployment before production use —
+  see the note at the top of aPeSecrets's
+  [Modules\CredentialResolver.psm1](../../aPeSecrets/Modules/CredentialResolver.psm1) and its
+  [Claude_Docs\Reference_Configuration.md](../../aPeSecrets/Claude_Docs/Reference_Configuration.md).
+- **AD's 1,500-value range limit** on the `member` attribute can make
+  `MemberCount` (and the raw-DN membership fallback path) incomplete for
+  groups with very large direct membership; the primary membership-resolution
+  path (`Get-ADGroupMember`) is not affected.
+- **DN parsing for OU depth** treats a comma preceded by `\` as an escaped
+  literal rather than a component separator, which covers the common case of
+  commas inside OU/CN names but is not a full LDAP DN parser.
+- **Computer object discovery** (`ADComputers.csv`, opt-in via a `Computers`
+  block per domain) reports AD's `operatingSystem`/`operatingSystemVersion`
+  and `lastLogonTimestamp` attributes as-is — these are self-reported and only
+  periodically refreshed/replicated by AD itself, not live facts about what's
+  actually running or when a machine was last used. This feature also hasn't
+  been tested against a live domain controller (no AD environment was
+  available while building it) — verify with `-DomainFilter` against one
+  domain before relying on it.
+- `Export-ADGroups.ps1` still scans domains sequentially (no concurrency).
+  `Export-LocalGroups.ps1` scans computers concurrently via `MaxConcurrency`,
+  but launches one `PowerShell` instance per computer up front rather than
+  trickling them in — fine at the scale this has been tested at, worth
+  revisiting for a single run covering tens of thousands of computers.
+- Local Windows discovery deliberately does not resolve primary-group
+  membership (tested live: local accounts' `primaryGroupID` resolves to no
+  real local group, so the column would be blank almost everywhere) or
+  distinguish GPO-managed local admin membership from manually-set membership
+  (the tool already captures the effective result either way) — see
+  [Design_Local-Windows-Discovery.md](Design_Local-Windows-Discovery.md)
+  §7 for the reasoning behind both decisions.
+- Database and software detection only recognize the specific service-name
+  patterns configured in `DatabaseSignatures` (SQL Server, MySQL, MariaDB,
+  PostgreSQL, Oracle, MongoDB by default) and `SoftwareSignatures` (empty by
+  default — see [database and other software detection](#database-and-other-software-detection)
+  for the steps to add your own). Anything outside those lists, or installed
+  with unusual service naming, won't be detected. `Listening = False` does not
+  mean "not installed" (confirmed live: a `Running` SQL Server showed
+  `Listening = False`, likely TCP/IP protocol disabled), and a listening port
+  doesn't guarantee it's actually that engine/software.
+- **`DatabaseSignatures`/`SoftwareSignatures` in config replace the built-in
+  default list rather than merging with it** — adding one engine to the
+  defaults means copying the full default list into your config first (see
+  above).
+- **`PasswordLastSet` is approximate**, derived from the target's own
+  `PasswordAge` applied against the scanning host's clock — fine for spotting
+  a stale password, not precise to the minute given ordinary clock skew.
+- **Retry (`RetryCount`) re-runs the entire per-computer scan**, not just the
+  step that failed, and `LocalScanErrors.csv` records only the final outcome
+  per computer, not one row per attempt (per-attempt detail is in the log).
+- **`LocalServiceAccounts.csv`'s gMSA/MSA flag is a naming-convention
+  heuristic** (a trailing `$`), not an authoritative AD lookup — see
+  [service account discovery](#service-account-discovery).
+  This file always lists every non-built-in/non-virtual service account
+  across the estate; there's currently no way to narrow it to specific
+  account name(s) of interest.
+- Scheduled Task Run As credential storage, secrets-at-rest for
+  `ApiKeyPath`/`CredentialFilePath` files, and file-system ACLs on
+  `Config\`/`Output\`/any secrets directory are the operator's
+  responsibility — this project does not manage those.
+- **`Export-LocalLinuxGroups.ps1` does not yet collect `BadPasswordAttempts`** —
+  designed (see [Design_Local-Linux-Discovery.md](Design_Local-Linux-Discovery.md))
+  but not yet built; it's the only remaining unbuilt item in the Linux design.
+  Any sudo-derived field (password state, sudo rights, `Listening`/
+  unrecognized-port checks, SSH-login eligibility) requires the *connecting*
+  account to have a resolvable sudo credential (broad `ALL` rights for
+  `LinuxSudoRights.csv` specifically); without one, those fields are left blank
+  rather than failing the scan. `LinuxDatabases.csv`'s built-in signatures
+  beyond PostgreSQL (MySQL/MariaDB/MongoDB) are unverified starter guesses — no
+  such engine has been available on the test VM to confirm against.
+  `SshKeyLoginPossible` only checks the default `~/.ssh/authorized_keys` path,
+  not a customized `AuthorizedKeysFile` directive. Actually supplying a sudo
+  password for the password-required elevation case is fully implemented and
+  verified, but the `SudoCredentialSource` override path (for key-based SSH
+  auth) has not been separately verified live for lack of a matching test
+  scenario.
