@@ -71,9 +71,9 @@
     and, for any listening port matching no configured signature at all, produces
     a LinuxUnrecognizedListeningPorts.csv row.
 
-    This covers Phase 1-5 of Claude_Docs\Design_Local-Linux-Discovery.md. Still
-    design-only: per-account SSH login eligibility and BadPasswordAttempts - see
-    the design doc's Progress Tracker for what's left.
+    This covers Phase 1-5 of Claude_Docs\Design_Local-Linux-Discovery.md, plus
+    per-account SSH login eligibility. Still design-only: BadPasswordAttempts - see
+    Claude_Docs\Planning_Open-Items.md for what's left.
 
     Exit code 0 = every enabled computer succeeded. Exit code 1 = at least one
     computer failed (see the ERROR lines in the log, or LinuxScanErrors.csv);

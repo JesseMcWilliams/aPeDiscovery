@@ -4,20 +4,22 @@
 
 ---
 
-## 6. Data model & interfaces (proposed — not final)
+## 6. Data model & interfaces (implemented)
 
-Proposed columns, mirroring the Windows output shape. Every field below marked **verified** was
-confirmed live against the real test VM (2026-09-17); everything else is still a proposal.
+Columns as implemented in `Modules\LocalLinuxComputerScanner.psm1`, mirroring the Windows output shape
+(`Reference_CSV-Schemas.md` has the current list). Fields marked **verified** were confirmed live against
+the real test VM (2026-09-17). The only designed field not yet implemented is `BadPasswordAttempts`.
 
 **LinuxLocalUsers.csv:** `ScanTimestamp`, `ComputerName`, `UserName`, `UID`, `PrimaryGID`,
 `Description` (the GECOS field), `HomeDirectory`, `Shell` — all **verified** via `/etc/passwd`.
 Plus, now that the scan account has `sudo` (see Section 5a):
 `PasswordLastSet` — **verified**, `/etc/shadow` field 3 (days since epoch) converted with `date -d
 "1970-01-01 +N days"` (confirmed: `20691` → `2026-08-26`);
-`PasswordNeverExpires` — **concept verified, classification not yet coded**: real accounts on the
-test VM showed a max-age of `99999` days (~273 years), the standard shadow-utils "effectively never
-expires" sentinel, but the actual "is this the sentinel" check hasn't been written;
-`BadPasswordAttempts` — **verified**, via `faillock --user <name>` (querying your *own* account
+`PasswordNeverExpires` — **implemented**: real accounts on the test VM showed a max-age of `99999`
+days (~273 years), the standard shadow-utils "effectively never expires" sentinel, and the scanner
+treats a max-age of `99999` or more as never-expires;
+`BadPasswordAttempts` — **designed, not implemented**. The command was verified manually via
+`faillock --user <name>` (querying your *own* account
 needs no elevation; querying another account will very likely need `sudo`, per normal Linux
 file-permission behavior on `/var/run/faillock/*`, though that specific case wasn't tested).
 **No longer gated on a later phase** — all of this is available now that sudo rights exist.
@@ -167,7 +169,7 @@ systemd: match a **systemd unit name** (analogous to a Windows service short nam
 configured pattern, then enrich the match via `systemctl show`, then cross-reference the configured
 port against a single `ss -tlnp` capture (not a probe per signature).
 
-**Proposed signature shape**: `LinuxDatabaseSignatures` = `[{ Engine, UnitPattern, DefaultPort }]`,
+**Signature shape** (implemented): `LinuxDatabaseSignatures` = `[{ Engine, UnitPattern, DefaultPort }]`,
 `LinuxSoftwareSignatures` = `[{ Name, Category, UnitPattern, DefaultPort }]` — deliberately parallel
 to the Windows `DatabaseSignatures`/`SoftwareSignatures` shape, just `ServicePattern` renamed to
 `UnitPattern` since it matches a systemd unit name, not a Win32 service short name.
@@ -256,7 +258,7 @@ Linux doesn't need a `Virtual`/`gMSA` category — there's no per-service virtua
 managed-service-account convention in this model, just "root" (noise) vs. "a specific named account"
 (kept) — the wrinkle is entirely in *how* the account gets resolved, not in the category system.
 
-**Proposed columns**: `ScanTimestamp`, `ComputerName`, `UnitName`, `Description`, `ServiceAccountName`
+**Columns** (implemented): `ScanTimestamp`, `ComputerName`, `UnitName`, `Description`, `ServiceAccountName`
 (the *resolved* account, per the process-owner cross-check above — not a bare `User=` read; `root`
 rows excluded), `StartType` (`UnitFileState`), `Status` (`ActiveState`/`SubState`), `Path`
 (`ExecStart`).
