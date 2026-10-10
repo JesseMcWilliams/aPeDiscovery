@@ -14,7 +14,7 @@ shape of the thing, not a field-by-field reference.
 
 ## 1. Why this is worth doing
 
-AD-level discovery (`Export-ADGroups.ps1`) has no visibility into **local** accounts, local groups,
+AD-level discovery (`Export-ADObjects.ps1`) has no visibility into **local** accounts, local groups,
 and local group membership on individual computers — e.g. a local Administrator account, a
 locally-created service account, or a domain user someone added directly to a server's local
 `Administrators` group outside of any AD group. That's exactly the kind of unmanaged privilege a
@@ -36,7 +36,7 @@ PAM-adjacent discovery effort needs visibility into, and AD-only scanning can't 
 ## 3. Non-goals
 
 - **Read-only.** Nothing in this tool modifies local accounts, groups, or membership.
-- **No domain group membership resolution.** That's `Export-ADGroups.ps1`'s job; this tool only
+- **No domain group membership resolution.** That's `Export-ADObjects.ps1`'s job; this tool only
   reports what a local WinNT bind can see (which does include domain-origin members added directly
   to a local group — see `MemberOrigin` in the output — but not the domain group's own further
   membership).
@@ -210,7 +210,7 @@ discarded as noise; `User` and `LikelyGmsaOrMsa` both survive into `LocalService
 choice made with the user) because the trailing-`$` classification is a naming-convention heuristic,
 not an authoritative check against AD's `msDS-GroupManagedServiceAccount` object class — this script
 has no AD connectivity of its own, so it cannot positively confirm an account's actual object class
-the way `Export-ADGroups.ps1` could if this were ever cross-referenced against it.
+the way `Export-ADObjects.ps1` could if this were ever cross-referenced against it.
 
 **Two derived, filtered views added in the same follow-up (added 2026-09-16): `LocalDatabasesListening.csv`
 and `LocalGmsaServiceAccounts.csv`.** Both are pure in-memory filters of data already collected —
@@ -246,9 +246,11 @@ Each unit of work returns its own row collections rather than every runspace mut
 concurrently from multiple threads, so aggregation happens back on the main thread instead, after
 each job's `EndInvoke()` returns. The one genuinely shared side effect, the log file, **is** written
 concurrently from multiple runspaces (each computer logs its own start/completion/error line as it
-happens), so `Write-DiscoveryLog` (`Modules\Logging.psm1`) now guards its file write with a named
-`Mutex` keyed on the log path — plain `Add-Content` has no coordination across concurrent writers to
-the same file.
+happens). Each runspace creates its own [LogaPe](../../LogaPe) logger on the parent's log file and
+disposes of it with `Remove-Logger` when its scan ends. LogaPe guards every write with a named `Mutex`
+keyed on the log file path, so concurrent writers serialize. (Before 2026-10-09 this was the
+project's own `Write-DiscoveryLog` in `Modules\Logging.psm1`, which also wrote unguarded if its mutex
+wait timed out.)
 
 **A real bug hit and fixed while building this, worth remembering:**
 `InitialSessionState.ImportPSModule(string[])`, called once with all four module paths in a single
@@ -314,7 +316,7 @@ array (see the loop in `Export-LocalGroups.ps1`).
   reachability check on the next attempt — simpler and more robust than resuming mid-scan, but means
   a retry costs roughly the same as a fresh attempt, not just the remaining work.
 - **`LocalScanErrors.csv` records only the final outcome**, not a row per retry attempt — the
-  per-attempt `WARN`/`ERROR` detail lives in the log file, not the CSV.
+  per-attempt `Warning`/`Error` detail lives in the log file, not the CSV.
 - **`LocalServiceAccounts.csv`'s `AccountType = LikelyGmsaOrMsa` is a naming-convention heuristic**
   (a trailing `$`), not an authoritative check against AD — nothing stops a real user account from
   also being named with a trailing `$` (rare in practice, but possible), and this tool has no AD
@@ -367,7 +369,7 @@ open item any more.
   service naming varies by vendor and version?
 - Should retry use a fixed delay (current behavior) or exponential backoff? Should a failed attempt
   ever resume from where it left off instead of restarting the whole per-computer scan?
-- Should `LocalServiceAccounts.csv` ever be cross-referenced against `Export-ADGroups.ps1`'s output
+- Should `LocalServiceAccounts.csv` ever be cross-referenced against `Export-ADObjects.ps1`'s output
   to positively confirm a `LikelyGmsaOrMsa` account's real AD object class, turning the current
   naming heuristic into an authoritative check? Would require correlating the two scripts' output
   (a domain lookup, not something this script can do on its own).

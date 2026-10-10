@@ -15,7 +15,7 @@
     Timestamped copies are kept under <OutputDirectory>\Archive.
 .NOTES
     Exit code 0 = every enabled domain succeeded. Exit code 1 = at least one
-    domain failed (see the ERROR lines in the log); other domains still ran.
+    domain failed (see the Error lines in the log); other domains still ran.
 
     Per-domain config can narrow what's exported: ExcludeOUs (skip a sub-tree
     within an otherwise-scanned base), IncludeGroupCategories/IncludeGroupScopes
@@ -44,7 +44,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 Import-Module ActiveDirectory -ErrorAction Stop
-Import-Module (Join-Path $PSScriptRoot 'Modules\Logging.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '..\LogaPe\LogaPe\LogaPe.psd1') -Force
 Import-Module (Join-Path $PSScriptRoot '..\aPeSecrets\Modules\CredentialResolver.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Modules\ADHelpers.psm1') -Force
 
@@ -58,9 +58,12 @@ if (-not $config.Domains -or $config.Domains.Count -eq 0) { throw "Config must d
 
 New-Item -ItemType Directory -Path $config.OutputDirectory -Force | Out-Null
 $logDirectory = if ($config.LogDirectory) { $config.LogDirectory } else { Join-Path $config.OutputDirectory 'Logs' }
-$logPath = Initialize-DiscoveryLog -LogDirectory $logDirectory -BaseName 'Export-ADGroups'
+New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+$logFileName = 'Export-ADObjects_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')
+$logger = New-Logger -Folder $logDirectory -FileName $logFileName -UseFileNameAsIs -Destination Both -SetActive -EnableDefaultMasking
+$logPath = Get-LoggerFullPath -Logger $logger
 
-Write-DiscoveryLog -LogPath $logPath -Message "Starting AD group export using config '$ConfigPath'."
+Write-Log -Level Information -Message "Starting AD group export using config '$ConfigPath'."
 
 $scanTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
 $groupRows = [System.Collections.Generic.List[object]]::new()
@@ -71,14 +74,14 @@ $hadFailures = $false
 foreach ($domain in $config.Domains) {
 
     if ($domain.PSObject.Properties['Enabled'] -and -not $domain.Enabled) {
-        Write-DiscoveryLog -LogPath $logPath -Message "Skipping disabled domain entry '$($domain.DomainName)'."
+        Write-Log -Level Information -Message "Skipping disabled domain entry '$($domain.DomainName)'."
         continue
     }
     if ($DomainFilter -and ($domain.DomainName -notin $DomainFilter)) {
         continue
     }
 
-    Write-DiscoveryLog -LogPath $logPath -Message "Starting scan of domain '$($domain.DomainName)'."
+    Write-Log -Level Information -Message "Starting scan of domain '$($domain.DomainName)'."
     try {
         $credentialParams = @{}
         if ($domain.CredentialParams) {
@@ -101,10 +104,10 @@ foreach ($domain in $config.Domains) {
                 $candidateOU = $_
                 -not ($excludeOUs | Where-Object { $candidateOU -eq $_ -or $candidateOU -like "*,$_" })
             })
-            Write-DiscoveryLog -LogPath $logPath -Message "Domain '$($domain.DomainName)': excluded $($beforeCount - $searchBases.Count) OU(s) via ExcludeOUs."
+            Write-Log -Level Information -Message "Domain '$($domain.DomainName)': excluded $($beforeCount - $searchBases.Count) OU(s) via ExcludeOUs."
         }
 
-        Write-DiscoveryLog -LogPath $logPath -Message "Domain '$($domain.DomainName)': scanning $($searchBases.Count) OU(s) under '$baseOU' (depth $ouDepth)."
+        Write-Log -Level Information -Message "Domain '$($domain.DomainName)': scanning $($searchBases.Count) OU(s) under '$baseOU' (depth $ouDepth)."
 
         $includeGroupCategories = if ($domain.IncludeGroupCategories) { @($domain.IncludeGroupCategories) } else { @() }
         $includeGroupScopes = if ($domain.IncludeGroupScopes) { @($domain.IncludeGroupScopes) } else { @() }
@@ -177,7 +180,7 @@ foreach ($domain in $config.Domains) {
                             }
                         }
                 } catch {
-                    Write-DiscoveryLog -Level WARN -LogPath $logPath -Message "Get-ADGroupMember failed for '$($group.SamAccountName)' ($($_.Exception.Message)); falling back to raw member DN resolution."
+                    Write-Log -Level Warning -Message "Get-ADGroupMember failed for '$($group.SamAccountName)' ($($_.Exception.Message)); falling back to raw member DN resolution."
                     $members = foreach ($memberDN in $group.member) {
                         if (-not $memberCache.ContainsKey($memberDN)) {
                             try {
@@ -189,7 +192,7 @@ foreach ($domain in $config.Domains) {
                                     ObjectClass = $obj.ObjectClass
                                 }
                             } catch {
-                                Write-DiscoveryLog -Level WARN -LogPath $logPath -Message "Could not resolve member '$memberDN' of group '$($group.SamAccountName)': $($_.Exception.Message)"
+                                Write-Log -Level Warning -Message "Could not resolve member '$memberDN' of group '$($group.SamAccountName)': $($_.Exception.Message)"
                                 $memberCache[$memberDN] = [pscustomobject]@{ Name = $memberDN; DN = $memberDN; SID = $null; ObjectClass = 'unknown' }
                             }
                         }
@@ -213,7 +216,7 @@ foreach ($domain in $config.Domains) {
             }
         }
 
-        Write-DiscoveryLog -LogPath $logPath -Message "Completed scan of domain '$($domain.DomainName)': $domainGroupCount group(s) exported, $domainFilteredGroupCount skipped by IncludeGroupCategories/IncludeGroupScopes/ExcludeGroupNames filters."
+        Write-Log -Level Information -Message "Completed scan of domain '$($domain.DomainName)': $domainGroupCount group(s) exported, $domainFilteredGroupCount skipped by IncludeGroupCategories/IncludeGroupScopes/ExcludeGroupNames filters."
 
         if ($domain.PSObject.Properties['Computers']) {
             $computerConfig = $domain.Computers
@@ -233,7 +236,7 @@ foreach ($domain in $config.Domains) {
             $computerNameFilter = if ($computerConfig.NameFilter) { @($computerConfig.NameFilter) } else { @() }
             $osTypeFilter = if ($computerConfig.OSTypeFilter) { @($computerConfig.OSTypeFilter) } else { @() }
 
-            Write-DiscoveryLog -LogPath $logPath -Message "Domain '$($domain.DomainName)': scanning $($computerSearchBases.Count) OU(s) under '$computerBaseOU' for computer objects (depth $computerOuDepth)."
+            Write-Log -Level Information -Message "Domain '$($domain.DomainName)': scanning $($computerSearchBases.Count) OU(s) under '$computerBaseOU' for computer objects (depth $computerOuDepth)."
 
             $domainComputerCount = 0
             $domainFilteredComputerCount = 0
@@ -280,11 +283,11 @@ foreach ($domain in $config.Domains) {
                 }
             }
 
-            Write-DiscoveryLog -LogPath $logPath -Message "Completed computer scan of domain '$($domain.DomainName)': $domainComputerCount computer(s) exported, $domainFilteredComputerCount skipped by NameFilter/OSTypeFilter."
+            Write-Log -Level Information -Message "Completed computer scan of domain '$($domain.DomainName)': $domainComputerCount computer(s) exported, $domainFilteredComputerCount skipped by NameFilter/OSTypeFilter."
         }
     } catch {
         $hadFailures = $true
-        Write-DiscoveryLog -Level ERROR -LogPath $logPath -Message "Domain '$($domain.DomainName)' failed: $($_.Exception.Message)"
+        Write-Log -Level Error -Message "Domain '$($domain.DomainName)' failed: $($_.Exception.Message)"
         continue
     }
 }
@@ -308,10 +311,10 @@ foreach ($prefix in 'ADGroups', 'ADGroupMembers', 'ADComputers') {
     Get-ChildItem -Path $archiveDirectory -Filter "$prefix`_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -Skip $retentionCount | Remove-Item -Force
 }
 
-Write-DiscoveryLog -LogPath $logPath -Message "Export complete. Groups: $($groupRows.Count), membership rows: $($memberRows.Count), computers: $($computerRows.Count). Output: '$groupsCsvPath', '$membersCsvPath', '$computersCsvPath'."
+Write-Log -Level Information -Message "Export complete. Groups: $($groupRows.Count), membership rows: $($memberRows.Count), computers: $($computerRows.Count). Output: '$groupsCsvPath', '$membersCsvPath', '$computersCsvPath'."
 
 if ($hadFailures) {
-    Write-DiscoveryLog -Level WARN -LogPath $logPath -Message 'One or more domains failed; see ERROR entries above.'
+    Write-Log -Level Warning -Message 'One or more domains failed; see Error entries above.'
     exit 1
 }
 exit 0

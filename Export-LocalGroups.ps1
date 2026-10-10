@@ -76,7 +76,7 @@
     convention) - every row in it also still appears in LocalServiceAccounts.csv.
 
     Exit code 0 = every enabled computer succeeded. Exit code 1 = at least one
-    computer failed (see the ERROR lines in the log, or LocalScanErrors.csv); other computers still ran.
+    computer failed (see the Error lines in the log, or LocalScanErrors.csv); other computers still ran.
 #>
 [CmdletBinding()]
 param(
@@ -87,7 +87,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$loggingModulePath = Join-Path $PSScriptRoot 'Modules\Logging.psm1'
+$loggingModulePath = Join-Path $PSScriptRoot '..\LogaPe\LogaPe\LogaPe.psd1'
 $credentialModulePath = Join-Path $PSScriptRoot '..\aPeSecrets\Modules\CredentialResolver.psm1'
 $networkModulePath = Join-Path $PSScriptRoot 'Modules\NetworkHelpers.psm1'
 $scannerModulePath = Join-Path $PSScriptRoot 'Modules\LocalComputerScanner.psm1'
@@ -108,7 +108,10 @@ if (-not $config.OutputDirectory) { throw "Config is missing required property '
 
 New-Item -ItemType Directory -Path $config.OutputDirectory -Force | Out-Null
 $logDirectory = if ($config.LogDirectory) { $config.LogDirectory } else { Join-Path $config.OutputDirectory 'Logs' }
-$logPath = Initialize-DiscoveryLog -LogDirectory $logDirectory -BaseName 'Export-LocalGroups'
+New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+$logFileName = 'Export-LocalGroups_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')
+$logger = New-Logger -Folder $logDirectory -FileName $logFileName -UseFileNameAsIs -Destination Both -SetActive -EnableDefaultMasking
+$logPath = Get-LoggerFullPath -Logger $logger
 
 $maxConcurrency = if ($config.MaxConcurrency) { [int]$config.MaxConcurrency } else { 1 }
 if ($maxConcurrency -lt 1) { throw "Config 'MaxConcurrency' must be 1 or greater." }
@@ -120,7 +123,7 @@ $softwareSignatures = if ($config.SoftwareSignatures) { @($config.SoftwareSignat
 $retryCount = if ($config.RetryCount) { [int]$config.RetryCount } else { 0 }
 $retryDelaySeconds = if ($config.RetryDelaySeconds) { [int]$config.RetryDelaySeconds } else { 5 }
 
-Write-DiscoveryLog -LogPath $logPath -Message "Starting local group export using computers list '$ComputersCsvPath' (MaxConcurrency=$maxConcurrency)."
+Write-Log -Level Information -Message "Starting local group export using computers list '$ComputersCsvPath' (MaxConcurrency=$maxConcurrency)."
 
 $computers = Import-Csv -Path $ComputersCsvPath
 $scanTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
@@ -137,7 +140,7 @@ $hadFailures = $false
 $targets = [System.Collections.Generic.List[object]]::new()
 foreach ($row in $computers) {
     if ($row.PSObject.Properties['Enabled'] -and $row.Enabled -match '^(0|false)$') {
-        Write-DiscoveryLog -LogPath $logPath -Message "Skipping disabled entry '$($row.ComputerName)'."
+        Write-Log -Level Information -Message "Skipping disabled entry '$($row.ComputerName)'."
         continue
     }
     if ($ComputerFilter -and ($row.ComputerName -notin $ComputerFilter)) {
@@ -147,7 +150,7 @@ foreach ($row in $computers) {
 }
 
 if ($targets.Count -eq 0) {
-    Write-DiscoveryLog -Level WARN -LogPath $logPath -Message 'No enabled computers matched; nothing to scan.'
+    Write-Log -Level Warning -Message 'No enabled computers matched; nothing to scan.'
 }
 
 $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
@@ -201,7 +204,7 @@ try {
             $scanResults = $job.PowerShell.EndInvoke($job.Handle)
         } catch {
             $hadFailures = $true
-            Write-DiscoveryLog -Level ERROR -LogPath $logPath -Message "Computer '$($job.ComputerName)' failed unexpectedly: $($_.Exception.Message)"
+            Write-Log -Level Error -Message "Computer '$($job.ComputerName)' failed unexpectedly: $($_.Exception.Message)"
             $scanErrorRows.Add([pscustomobject]@{
                 ScanTimestamp = $scanTimestamp
                 ComputerName  = $job.ComputerName
@@ -278,10 +281,10 @@ foreach ($prefix in 'LocalUsers', 'LocalGroups', 'LocalGroupMembers', 'LocalData
     Get-ChildItem -Path $archiveDirectory -Filter "$prefix`_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -Skip $retentionCount | Remove-Item -Force
 }
 
-Write-DiscoveryLog -LogPath $logPath -Message "Export complete. Users: $($userRows.Count), groups: $($groupRows.Count), membership rows: $($memberRows.Count), database services: $($databaseRows.Count) ($($listeningDatabaseRows.Count) listening), other software services: $($softwareRows.Count), failed computers: $($scanErrorRows.Count), service accounts of interest: $($serviceAccountRows.Count) ($($gmsaServiceAccountRows.Count) likely gMSA/MSA)."
+Write-Log -Level Information -Message "Export complete. Users: $($userRows.Count), groups: $($groupRows.Count), membership rows: $($memberRows.Count), database services: $($databaseRows.Count) ($($listeningDatabaseRows.Count) listening), other software services: $($softwareRows.Count), failed computers: $($scanErrorRows.Count), service accounts of interest: $($serviceAccountRows.Count) ($($gmsaServiceAccountRows.Count) likely gMSA/MSA)."
 
 if ($hadFailures) {
-    Write-DiscoveryLog -Level WARN -LogPath $logPath -Message 'One or more computers failed; see ERROR entries above.'
+    Write-Log -Level Warning -Message 'One or more computers failed; see Error entries above.'
     exit 1
 }
 exit 0

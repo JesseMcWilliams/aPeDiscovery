@@ -15,7 +15,7 @@ Run this as the account that will own the task (or `-Credential` to target a dif
 ```powershell
 $action = New-ScheduledTaskAction `
     -Execute 'powershell.exe' `
-    -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\aPeDiscovery\Export-ADGroups.ps1"' `
+    -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\aPeDiscovery\Export-ADObjects.ps1"' `
     -WorkingDirectory 'C:\aPeDiscovery'
 
 $trigger = New-ScheduledTaskTrigger -Daily -At 2:00am
@@ -45,10 +45,10 @@ Repeat with a second action pointing at `Export-LocalGroups.ps1` for the local W
 
 Keep two credential concerns distinct:
 
-1. **The Task Scheduler Run As account** — the identity `powershell.exe` itself runs as. This account needs local logon rights on the host running the script, (for `Export-ADGroups.ps1`) the RSAT `ActiveDirectory` PowerShell module installed, and (for `Export-LocalLinuxGroups.ps1`) the `Posh-SSH` PowerShell module installed. It does **not** need rights in the target domains/computers if every domain/computer entry uses `CP`/`CCP`/`Conjur`/`PSCredential` rather than `CurrentUser`.
+1. **The Task Scheduler Run As account** — the identity `powershell.exe` itself runs as. This account needs local logon rights on the host running the script, (for `Export-ADObjects.ps1`) the RSAT `ActiveDirectory` PowerShell module installed, and (for `Export-LocalLinuxGroups.ps1`) the `Posh-SSH` PowerShell module installed. It does **not** need rights in the target domains/computers if every domain/computer entry uses `CP`/`CCP`/`Conjur`/`PSCredential` rather than `CurrentUser`.
 2. **The per-domain / per-computer scan credentials** — resolved at runtime by aPeSecrets's `CredentialResolver.psm1` from CyberArk (or a pre-exported `PSCredential` file, or Windows Credential Manager), as configured in `ScanConfig.json` / `ComputersToScan.csv` / `LinuxComputersToScan.csv`. These are what actually authenticate to each target domain/computer.
 
 ## Monitoring
 
 - Check the process exit code (`$LASTEXITCODE` if invoked from a wrapper script, or the Task Scheduler task's "Last Run Result") to detect partial failures.
-- The per-run log file under `<OutputDirectory>\Logs` contains one `ERROR` line per failed domain/computer with the underlying exception message, while the run otherwise continues.
+- The per-run log file under `<OutputDirectory>\Logs` contains one `Error` line per failed domain/computer with the underlying exception message, while the run otherwise continues.

@@ -8,7 +8,8 @@
 
 Columns as implemented in `Modules\LocalLinuxComputerScanner.psm1`, mirroring the Windows output shape
 (`Reference_CSV-Schemas.md` has the current list). Fields marked **verified** were confirmed live against
-the real test VM (2026-09-17). The only designed field not yet implemented is `BadPasswordAttempts`.
+the real test VM (2026-09-17). `BadPasswordAttempts` (implemented 2026-10-09) is the one field not yet
+verified live.
 
 **LinuxLocalUsers.csv:** `ScanTimestamp`, `ComputerName`, `UserName`, `UID`, `PrimaryGID`,
 `Description` (the GECOS field), `HomeDirectory`, `Shell` — all **verified** via `/etc/passwd`.
@@ -18,11 +19,18 @@ Plus, now that the scan account has `sudo` (see Section 5a):
 `PasswordNeverExpires` — **implemented**: real accounts on the test VM showed a max-age of `99999`
 days (~273 years), the standard shadow-utils "effectively never expires" sentinel, and the scanner
 treats a max-age of `99999` or more as never-expires;
-`BadPasswordAttempts` — **designed, not implemented**. The command was verified manually via
-`faillock --user <name>` (querying your *own* account
-needs no elevation; querying another account will very likely need `sudo`, per normal Linux
-file-permission behavior on `/var/run/faillock/*`, though that specific case wasn't tested).
-**No longer gated on a later phase** — all of this is available now that sudo rights exist.
+`BadPasswordAttempts` — **implemented, not yet verified live** (LT-LNX-02/03). One `sudo -n faillock`
+call per computer (no `--user`) lists every account that has a tally file; the scanner counts the
+record lines under each `user:` header, and an account with no tally gets `0`. Every record counts,
+valid (`V`) or not (`I`): pam_faillock clears the tally on a successful login, so the count means
+"failures since the last successful login", the same as Windows' `badPwdCount`. The value is left
+blank (not `0`) for every account on a computer when:
+- no non-comment line in `/etc/pam.d/*` loads `pam_faillock` (nothing is tallied, so `0` would claim
+  something nobody measured), or
+- any output line isn't one of faillock's three shapes (`user:`, the `When Type Source Valid` header,
+  or a `YYYY-MM-DD HH:MM:SS` record), which means sudo or permission error text came back instead
+  of data.
+The parsing lives in `ConvertFrom-LinuxFaillockOutput`. `pam_tally2` (older distros) isn't read.
 
 **Password state — refined from a simple `Disabled` boolean to a real classification (verified
 2026-09-17, needs `sudo` to read `/etc/shadow`).** `/etc/shadow` field 2 turned out to have more

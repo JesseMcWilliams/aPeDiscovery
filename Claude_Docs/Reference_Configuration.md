@@ -1,6 +1,6 @@
 # Configuration reference
 
-## ScanConfig.json (used by Export-ADGroups.ps1)
+## ScanConfig.json (used by Export-ADObjects.ps1)
 
 Top level:
 
@@ -186,7 +186,7 @@ against synthetic domain-user/gMSA examples):
 **The gMSA/MSA classification is a naming-convention heuristic** — a trailing `$` is the standard,
 unambiguous Microsoft convention for a group-managed or standalone managed service account, but it's
 not an authoritative check against AD's `msDS-GroupManagedServiceAccount` object class, since this
-script has no AD connectivity of its own (that's `Export-ADGroups.ps1`'s domain). `LikelyGmsaOrMsa`
+script has no AD connectivity of its own (that's `Export-ADObjects.ps1`'s domain). `LikelyGmsaOrMsa`
 rows are flagged, not silently dropped, precisely because of that uncertainty — filter them out
 downstream if you only want real user accounts, or cross-reference the account name against your AD
 export if you need certainty.
@@ -263,7 +263,7 @@ Windows tool's per-signature-port-probe design can't offer.
 
 `ss -tlnp`'s process-attribution column needs the connecting account to have usable sudo access (see
 below) — without it, `Listening` is left blank for every signature and
-`LinuxUnrecognizedListeningPorts.csv` is empty for that computer, logged as a `WARN` rather than
+`LinuxUnrecognizedListeningPorts.csv` is empty for that computer, logged as a `Warning` rather than
 failing the scan.
 
 #### Adding a new Linux signature
@@ -288,7 +288,7 @@ Same idea as the Windows steps in [Database and other-software detection](#datab
 ### Sudo-dependent fields and elevation
 
 `LinuxLocalUsers.csv`'s `PasswordState`/`PasswordLastSet`/`PasswordNeverExpires`/
-`SshPasswordLoginPossible`/`SshKeyLoginPossible`, every row of `LinuxSudoRights.csv` beyond a bare
+`BadPasswordAttempts`/`SshPasswordLoginPossible`/`SshKeyLoginPossible`, every row of `LinuxSudoRights.csv` beyond a bare
 "no access", and `ss -tlnp`-derived data (`Listening` in `LinuxDatabases.csv`/`LinuxSoftware.csv`,
 and all of `LinuxUnrecognizedListeningPorts.csv`) all require the **connecting** account to have
 usable `sudo` rights on the target — specifically **broad** (`ALL`) rights to get useful data out of
@@ -362,7 +362,7 @@ Some target domains have no trust relationship with the domain the scheduled tas
   been tested against a live domain controller (no AD environment was
   available while building it) — verify with `-DomainFilter` against one
   domain before relying on it.
-- `Export-ADGroups.ps1` still scans domains sequentially (no concurrency).
+- `Export-ADObjects.ps1` still scans domains sequentially (no concurrency).
   `Export-LocalGroups.ps1` scans computers concurrently via `MaxConcurrency`,
   but launches one `PowerShell` instance per computer up front rather than
   trickling them in — fine at the scale this has been tested at, worth
@@ -403,9 +403,9 @@ Some target domains have no trust relationship with the domain the scheduled tas
   `ApiKeyPath`/`CredentialFilePath` files, and file-system ACLs on
   `Config\`/`Output\`/any secrets directory are the operator's
   responsibility — this project does not manage those.
-- **`Export-LocalLinuxGroups.ps1` does not yet collect `BadPasswordAttempts`** —
-  designed (see [Design_Local-Linux-Discovery.md](Design_Local-Linux-Discovery.md))
-  but not yet built; it's the only remaining unbuilt item in the Linux design.
+- **Linux `BadPasswordAttempts` only reads pam_faillock** — it's blank on hosts
+  whose PAM stack doesn't load `pam_faillock` (including older hosts still on
+  `pam_tally2`), rather than reporting `0` for an attempt count nothing tracks.
   Any sudo-derived field (password state, sudo rights, `Listening`/
   unrecognized-port checks, SSH-login eligibility) requires the *connecting*
   account to have a resolvable sudo credential (broad `ALL` rights for
