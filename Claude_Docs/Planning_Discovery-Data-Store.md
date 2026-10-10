@@ -22,7 +22,7 @@ New code targets PowerShell 7 only. LogaPe, aPeSecrets and the existing scripts 
 - `ForEach-Object -Parallel` and thread jobs, available for the later scanner work.
 - Faster JSON and CSV handling, and active development (5.1 only gets fixes).
 
-Verification used 7.6.6 (Section 8). The minimum supported 7.x version is open question 62.
+Verification used 7.6.6 (Section 8). The minimum supported version is 7.6 (decision 62).
 
 ## 3. Configuration files
 
@@ -169,7 +169,7 @@ Views are defined in `DiscoveryStore.psm1` and created or updated by the migrati
 | `v_scan_targets_linux` | The same, for non-Windows OS values |
 | `v_groups`, `v_group_members` | Current groups; membership with `Direct`/`Nested` |
 
-The two scan-target views produce the same columns as `ComputersToScan.csv`/`LinuxComputersToScan.csv`, except the credential columns. Those come from a separate mapping (a Phase 2 decision).
+The two scan-target views produce the same columns as `ComputersToScan.csv`/`LinuxComputersToScan.csv`, except the credential columns, which Phase 2 adds (decision 61).
 
 ## 6. Run flow
 
@@ -203,8 +203,10 @@ Run on PowerShell 7.6.6 (portable copy, .NET 10) on 2026-10-09.
 | `Export-ADObjects.ps1` / ActiveDirectory module | Needs the lab (RSAT isn't installed here). |
 | SQLite prototype | **Passing** (Section 4.1). |
 
-## 9. Open questions
+## 9. Decisions after review (2026-10-09)
 
-60. **`KeepRuns` default:** 90 runs?
-61. **Credentials for scan-target exports:** `ComputersToScan.csv` needs a credential source per computer. Should a Phase 1 export config carry a default credential source, or does that wait for Phase 2?
-62. **Minimum PowerShell 7 version:** 7.6 (what was tested), or also 7.4? 7.4 runs on .NET 8, which still satisfies `Microsoft.Data.Sqlite` (`net8.0`), but it would need its own test pass.
+- **60:** `Store.KeepRuns` defaults to 90.
+- **61:** Credentials for scan-target exports wait for Phase 2. Phase 1's `v_scan_targets_*` exports omit the credential columns.
+- **62:** The minimum is PowerShell 7.6. Scripts declare `#Requires -Version 7.6`.
+
+What the scanning host needs is tracked in [Reference_Scanning-Host-Requirements.md](Reference_Scanning-Host-Requirements.md).
