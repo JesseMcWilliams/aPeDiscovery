@@ -119,7 +119,7 @@ See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
   - **F2:** `/etc/shadow` hashes are sent back to the scanning host for classification. Fix: classify on the target.
   - **F3:** `AcceptNewHostKey` defaults to true, so host keys are trusted on first use.
 
-  **Fixed on branch `2026-10-09-linux-security-fixes`** (2026-10-09, tested offline); awaiting live verification with LT-LNX-06 and LT-LNX-07.
+  **Fixed and merged to `main`** (2026-10-10; tested offline); awaiting live verification with LT-LNX-06 and LT-LNX-07.
 - **Proposed next architecture:**
   - collector architecture, modular target types and the credential lookup workflow: [Planning_Collector-Architecture.md](Planning_Collector-Architecture.md);
   - target research: the `Planning_Targets-*.md` docs;

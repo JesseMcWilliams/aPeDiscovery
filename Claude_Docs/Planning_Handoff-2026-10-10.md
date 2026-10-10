@@ -2,6 +2,8 @@
 
 > **Stage: Planning (point-in-time snapshot).** Where the work stands at the end of the 2026-10-09 session, so it can be picked up later without re-reading the history. It covers all three sibling repositories. Superseded by any later `Planning_Handoff-*.md`; once a newer one exists, rename this one `Archive_Planning_Handoff-2026-10-10.md`.
 
+> **Update 2026-10-10: everything below is merged.** Every branch and PR in Sections 2–3 is merged into `main` in all three repositories: aPeDiscovery PRs #6–#10, LogaPe #8, aPeSecrets #3. The topic branches and the two extra worktrees are deleted, and every checkout is on `main`. Sections 2–3 are kept as history; the findings, questions and next steps (Sections 4–7) still apply. In Section 5, skip "Merge or review the open PRs".
+
 ## 1. Start here
 
 1. Read this file, then [Planning_Questions.md](Planning_Questions.md). Most next steps wait on answers there (70–92) or on lab access (21).
