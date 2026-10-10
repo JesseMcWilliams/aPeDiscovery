@@ -22,7 +22,8 @@ See [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md)
 
 ## Prerequisites
 
-- Windows PowerShell 5.1 (or PowerShell 7+).
+- PowerShell 7 (recommended; tested on 7.6) or Windows PowerShell 5.1. Output
+  CSVs are identical on both (UTF-8 with a byte-order mark).
 - The sibling [aPeSecrets](../aPeSecrets) and [LogaPe](../LogaPe) repos,
   checked out next to this one (for example `C:\Code\aPeDiscovery`,
   `C:\Code\aPeSecrets`, `C:\Code\LogaPe`).

@@ -1,6 +1,6 @@
 # aPeDiscovery: Claude Code project notes
 
-PowerShell scripts that export Active Directory group/membership data and per-computer local Windows/Linux user, group and sudo-rights data to CSV, using CyberArk-resolved credentials. Runtime target is Windows PowerShell 5.1 (or PowerShell 7+); no `Set-StrictMode` or `#Requires` is used anywhere, so strict mode is not enabled.
+PowerShell scripts that export Active Directory group/membership data and per-computer local Windows/Linux user, group and sudo-rights data to CSV, using CyberArk-resolved credentials. Runtime target is **PowerShell 7** (new code is 7-only; see `Claude_Docs/Planning_Discovery-Data-Store.md`). The three existing scripts still also run on Windows PowerShell 5.1 and write identical CSVs on both (`$csvEncoding`); don't break that until they're moved to 7-only on purpose. No `Set-StrictMode` or `#Requires` is used anywhere, so strict mode is not enabled.
 
 ## Folder map
 - `Export-ADObjects.ps1`, `Export-LocalGroups.ps1`, `Export-LocalLinuxGroups.ps1`: the three entry-point scripts (AD groups, local Windows, local Linux).

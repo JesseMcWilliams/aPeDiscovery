@@ -89,6 +89,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Same bytes on both editions: Windows PowerShell 5.1's UTF8 writes a BOM, PowerShell 7's doesn't.
+$csvEncoding = if ($PSVersionTable.PSVersion.Major -ge 6) { 'utf8BOM' } else { 'UTF8' }
+
 if (-not (Get-Module -ListAvailable -Name Posh-SSH)) {
     throw "The Posh-SSH module is required (Install-Module Posh-SSH) but was not found."
 }
@@ -258,15 +261,15 @@ $serviceAccountsCsvPath = Join-Path $config.OutputDirectory 'LinuxServiceAccount
 $unrecognizedListeningPortsCsvPath = Join-Path $config.OutputDirectory 'LinuxUnrecognizedListeningPorts.csv'
 $scanErrorsCsvPath = Join-Path $config.OutputDirectory 'LinuxScanErrors.csv'
 
-$userRows | Export-Csv -Path $usersCsvPath -NoTypeInformation -Encoding UTF8
-$groupRows | Export-Csv -Path $groupsCsvPath -NoTypeInformation -Encoding UTF8
-$memberRows | Export-Csv -Path $membersCsvPath -NoTypeInformation -Encoding UTF8
-$sudoRightsRows | Export-Csv -Path $sudoRightsCsvPath -NoTypeInformation -Encoding UTF8
-$databaseRows | Export-Csv -Path $databasesCsvPath -NoTypeInformation -Encoding UTF8
-$softwareRows | Export-Csv -Path $softwareCsvPath -NoTypeInformation -Encoding UTF8
-$serviceAccountRows | Export-Csv -Path $serviceAccountsCsvPath -NoTypeInformation -Encoding UTF8
-$unrecognizedListeningPortRows | Export-Csv -Path $unrecognizedListeningPortsCsvPath -NoTypeInformation -Encoding UTF8
-$scanErrorRows | Export-Csv -Path $scanErrorsCsvPath -NoTypeInformation -Encoding UTF8
+$userRows | Export-Csv -Path $usersCsvPath -NoTypeInformation -Encoding $csvEncoding
+$groupRows | Export-Csv -Path $groupsCsvPath -NoTypeInformation -Encoding $csvEncoding
+$memberRows | Export-Csv -Path $membersCsvPath -NoTypeInformation -Encoding $csvEncoding
+$sudoRightsRows | Export-Csv -Path $sudoRightsCsvPath -NoTypeInformation -Encoding $csvEncoding
+$databaseRows | Export-Csv -Path $databasesCsvPath -NoTypeInformation -Encoding $csvEncoding
+$softwareRows | Export-Csv -Path $softwareCsvPath -NoTypeInformation -Encoding $csvEncoding
+$serviceAccountRows | Export-Csv -Path $serviceAccountsCsvPath -NoTypeInformation -Encoding $csvEncoding
+$unrecognizedListeningPortRows | Export-Csv -Path $unrecognizedListeningPortsCsvPath -NoTypeInformation -Encoding $csvEncoding
+$scanErrorRows | Export-Csv -Path $scanErrorsCsvPath -NoTypeInformation -Encoding $csvEncoding
 
 $archiveDirectory = Join-Path $config.OutputDirectory 'Archive'
 New-Item -ItemType Directory -Path $archiveDirectory -Force | Out-Null

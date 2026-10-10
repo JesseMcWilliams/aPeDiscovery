@@ -87,6 +87,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Same bytes on both editions: Windows PowerShell 5.1's UTF8 writes a BOM, PowerShell 7's doesn't.
+$csvEncoding = if ($PSVersionTable.PSVersion.Major -ge 6) { 'utf8BOM' } else { 'UTF8' }
+
 $loggingModulePath = Join-Path $PSScriptRoot '..\LogaPe\LogaPe\LogaPe.psd1'
 $credentialModulePath = Join-Path $PSScriptRoot '..\aPeSecrets\Modules\CredentialResolver.psm1'
 $networkModulePath = Join-Path $PSScriptRoot 'Modules\NetworkHelpers.psm1'
@@ -253,15 +256,15 @@ $gmsaServiceAccountsCsvPath = Join-Path $config.OutputDirectory 'LocalGmsaServic
 $listeningDatabaseRows = @($databaseRows | Where-Object { $_.Listening -eq $true })
 $gmsaServiceAccountRows = @($serviceAccountRows | Where-Object { $_.AccountType -eq 'LikelyGmsaOrMsa' })
 
-$userRows | Export-Csv -Path $usersCsvPath -NoTypeInformation -Encoding UTF8
-$groupRows | Export-Csv -Path $groupsCsvPath -NoTypeInformation -Encoding UTF8
-$memberRows | Export-Csv -Path $membersCsvPath -NoTypeInformation -Encoding UTF8
-$databaseRows | Export-Csv -Path $databasesCsvPath -NoTypeInformation -Encoding UTF8
-$softwareRows | Export-Csv -Path $softwareCsvPath -NoTypeInformation -Encoding UTF8
-$scanErrorRows | Export-Csv -Path $scanErrorsCsvPath -NoTypeInformation -Encoding UTF8
-$serviceAccountRows | Export-Csv -Path $serviceAccountsCsvPath -NoTypeInformation -Encoding UTF8
-$listeningDatabaseRows | Export-Csv -Path $listeningDatabasesCsvPath -NoTypeInformation -Encoding UTF8
-$gmsaServiceAccountRows | Export-Csv -Path $gmsaServiceAccountsCsvPath -NoTypeInformation -Encoding UTF8
+$userRows | Export-Csv -Path $usersCsvPath -NoTypeInformation -Encoding $csvEncoding
+$groupRows | Export-Csv -Path $groupsCsvPath -NoTypeInformation -Encoding $csvEncoding
+$memberRows | Export-Csv -Path $membersCsvPath -NoTypeInformation -Encoding $csvEncoding
+$databaseRows | Export-Csv -Path $databasesCsvPath -NoTypeInformation -Encoding $csvEncoding
+$softwareRows | Export-Csv -Path $softwareCsvPath -NoTypeInformation -Encoding $csvEncoding
+$scanErrorRows | Export-Csv -Path $scanErrorsCsvPath -NoTypeInformation -Encoding $csvEncoding
+$serviceAccountRows | Export-Csv -Path $serviceAccountsCsvPath -NoTypeInformation -Encoding $csvEncoding
+$listeningDatabaseRows | Export-Csv -Path $listeningDatabasesCsvPath -NoTypeInformation -Encoding $csvEncoding
+$gmsaServiceAccountRows | Export-Csv -Path $gmsaServiceAccountsCsvPath -NoTypeInformation -Encoding $csvEncoding
 
 $archiveDirectory = Join-Path $config.OutputDirectory 'Archive'
 New-Item -ItemType Directory -Path $archiveDirectory -Force | Out-Null
