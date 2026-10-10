@@ -119,7 +119,12 @@ See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
   - **F2:** `/etc/shadow` hashes are sent back to the scanning host for classification. Fix: classify on the target.
   - **F3:** `AcceptNewHostKey` defaults to true, so host keys are trusted on first use.
 
-  All three are in `Modules\LocalLinuxComputerScanner.psm1`, `Export-LocalLinuxGroups.ps1` and its config.
+  **Fixed on branch `2026-10-09-linux-security-fixes`** (2026-10-09, tested offline); awaiting live verification with LT-LNX-06 and LT-LNX-07.
+- **Proposed next architecture:**
+  - collector architecture, modular target types and the credential lookup workflow: [Planning_Collector-Architecture.md](Planning_Collector-Architecture.md);
+  - target research: the `Planning_Targets-*.md` docs;
+  - coverage: [Planning_Target-Coverage.md](Planning_Target-Coverage.md);
+  - open questions: [Planning_Questions.md](Planning_Questions.md).
 - **`Install-aPeDiscovery.ps1`'s elevated paths are untested.** The repository install/update and the offline bundle were tested; installing PowerShell 7, Posh-SSH and RSAT has only run as `-WhatIf` (LT-INST-01).
 
 - **`CredentialResolver.psm1`'s `Conjur` source is unverified against a real deployment.** `CP` was
