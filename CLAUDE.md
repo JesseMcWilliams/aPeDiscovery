@@ -2,6 +2,8 @@
 
 PowerShell scripts that export Active Directory group/membership data and per-computer local Windows/Linux user, group and sudo-rights data to CSV, using CyberArk-resolved credentials. Runtime target is Windows PowerShell 5.1 (or PowerShell 7+); no `Set-StrictMode` or `#Requires` is used anywhere, so strict mode is not enabled.
 
+**Resuming work:** read the newest `Claude_Docs/Planning_Handoff-*.md` first (currently `Planning_Handoff-2026-10-10.md`). It lists the open PRs and merge order, the branch stack, every finding and its status, and the next steps. Open questions for the user are in `Claude_Docs/Planning_Questions.md`.
+
 ## Folder map
 - `Export-ADObjects.ps1`, `Export-LocalGroups.ps1`, `Export-LocalLinuxGroups.ps1`: the three entry-point scripts (AD groups, local Windows, local Linux).
 - `Install-aPeDiscovery.ps1`: installs/updates the host prerequisites and all three repositories. It must stay Windows PowerShell 5.1-compatible, because it runs before PowerShell 7 exists. Test system-changing parts only with `-WhatIf`, or into a scratch `-InstallRoot` with `-Components Repositories`.
