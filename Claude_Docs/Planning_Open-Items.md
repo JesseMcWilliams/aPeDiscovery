@@ -92,6 +92,11 @@ See [Design_Local-Windows-Discovery.md](Design_Local-Windows-Discovery.md) Secti
 
 See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
 
+- **Redesign in progress:** per-type Users/Computers/Groups blocks with every filter built into the LDAP query.
+  See [Planning_AD-Object-Filters.md](Planning_AD-Object-Filters.md). It supersedes several questions below
+  (exclude-style computer filters, `BaseOU` defaults) and fixes a gap: objects in the default
+  `CN=Users`/`CN=Computers`/`CN=Builtin` containers are never exported today.
+
 - Should Azure AD / Entra ID group export be added as a second data source feeding the same output
   shape? Currently on-prem AD only.
 - Is the 1,500-member range limit on `MemberCount` worth fixing with ranged attribute retrieval, or
