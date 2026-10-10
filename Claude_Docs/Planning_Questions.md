@@ -61,4 +61,4 @@
 | 61 | Credentials for scan-target exports wait for Phase 2 | Same |
 | 62 | Minimum PowerShell 7.6 | Same |
 | 68 | Host setup on its own branch; committed, no PR | Git: `2026-10-09-host-setup` |
-| 69 | Fix F1–F3 | Git: `2026-10-09-linux-security-fixes` |
+| 69 | Fix F1–F3 | Merged to `main` 2026-10-10 (PR #10); live tests LT-LNX-06/07 pending |

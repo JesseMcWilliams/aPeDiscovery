@@ -129,7 +129,7 @@ if ($maxConcurrency -lt 1) { throw "Config 'MaxConcurrency' must be 1 or greater
 $connectTimeoutMs = if ($config.ConnectTimeoutMs) { [int]$config.ConnectTimeoutMs } else { 2000 }
 $sshConnectTimeoutSeconds = if ($config.SshConnectTimeoutSeconds) { [int]$config.SshConnectTimeoutSeconds } else { 15 }
 $commandTimeoutSeconds = if ($config.CommandTimeoutSeconds) { [int]$config.CommandTimeoutSeconds } else { 60 }
-$acceptNewHostKey = if ($null -ne $config.AcceptNewHostKey) { [bool]$config.AcceptNewHostKey } else { $true }
+$acceptNewHostKey = if ($null -ne $config.AcceptNewHostKey) { [bool]$config.AcceptNewHostKey } else { $false }
 $retryCount = if ($config.RetryCount) { [int]$config.RetryCount } else { 0 }
 $retryDelaySeconds = if ($config.RetryDelaySeconds) { [int]$config.RetryDelaySeconds } else { 5 }
 $databaseSignatures = if ($config.DatabaseSignatures) { @($config.DatabaseSignatures) } else { @(Get-DefaultLinuxDatabaseSignatures) }

@@ -109,6 +109,14 @@ while it adds concrete new costs `echo | sudo -S` doesn't have for this project'
 command per SSH call" use case: deploying and cleaning up a helper file per target, an extra `-A`
 requirement on every call, and an extra failure mode.
 
+> **Changed 2026-10-09 (Security brief F1):** `sudo -S` stays, but the password no longer travels in
+> the command text. Before, it was embedded (base64) in the remote command line, so it was visible in
+> the target's process list and in command auditing (auditd execve records, EDR telemetry). Now the
+> scanner runs the command through SSH.NET's `SshCommand` and writes the password to its **stdin**.
+> The script reads it with `IFS= read -r` and pipes it to `sudo -S -p '' -v` with the shell builtin
+> `printf`, so it appears in no command line. Nothing is pre-staged on the target, so the
+> "universal" reason for choosing `sudo -S` still holds. Needs live re-verification: LT-LNX-06.
+
 **Decided with the user (2026-09-17): `echo '<password>' | sudo -S`.** The user's own framing after
 reviewing this section: `SUDO_ASKPASS` needs a helper file to already exist (or be deployed) on every
 target, which isn't guaranteed — `echo | sudo -S` needs nothing pre-staged and works regardless of

@@ -9,3 +9,4 @@
 | 2026-10-09 | Logging now uses the sibling LogaPe module (must be checked out next to aPeDiscovery). Log lines read `<timestamp> \| <Level> \| <message>`, with levels `Information`/`Warning`/`Error` instead of `INFO`/`WARN`/`ERROR`. Secret-looking `key=value`/`key: value` text (password, token, secret, apikey, connectionstring) is masked as `***` in logs. | Prerequisites/install; log monitoring or alerting |
 | 2026-10-09 | PowerShell 7 is the recommended runtime; 5.1 still works. CSVs are UTF-8 with a byte-order mark on both. | Prerequisites |
 | 2026-10-09 | New `LinuxLocalUsers.csv` column `BadPasswordAttempts` (pam_faillock count; blank when not tracked or no sudo). | Linux output reference |
+| 2026-10-09 | Linux scans refuse SSH hosts whose key isn't trusted yet (`AcceptNewHostKey` now defaults to `false`). Enroll each host once with `New-SSHTrustedHost` as the task account after checking its fingerprint. | Linux setup; Scheduled-Task-Setup |

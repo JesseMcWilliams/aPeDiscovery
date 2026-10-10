@@ -48,6 +48,12 @@ shapes on the real VM than a single `Disabled` flag captures:
 Two distinct "no password login" conventions (`*` vs. `!*`) coexist on the *same* system depending on
 which tool created the account — both need recognizing, not just one.
 
+**Where the classification runs (since 2026-10-09):** on the target, in the remote `awk` program, using
+exactly the rules in the table above (in that order). Only the state name comes back to the scanning
+host, never field 2 itself, so password hashes never leave the target (Security brief F2). The
+scanner accepts only these seven state names on a shadow line; any other line marks the section
+unusable (blank fields, as with no sudo).
+
 **`the NOPASSWD sudo test account` itself is a live, already-proven example of the key point this whole area is about**:
 its own password state is bare `!` (locked, no hash) — it has **no usable password at all** — yet
 every command in this design has been executed *as* `the NOPASSWD sudo test account` all session, via SSH key auth. SSH

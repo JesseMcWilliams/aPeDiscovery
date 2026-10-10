@@ -198,12 +198,15 @@ This doc was split for length. The full sudo-discovery/elevation design (formerl
   host — the same supply-chain trust consideration as any external dependency. Pin an exact version
   once this is actually built, the same way `CredentialResolver.psm1` already urges verifying
   CP/CCP/Conjur specifics against the real deployment rather than assuming.
-- If a later phase adds `/etc/shadow`-derived fields, only the specific derived flags needed
-  (disabled/never-expires) should ever be parsed out and logged — never the shadow file's raw
-  content, which includes password hashes.
-- **A sudo password supplied via `echo '<password>' | sudo -S` is briefly visible on the *target*
-  host's own process list** (`ps aux`/`/proc/<pid>/cmdline`) while the command runs — see Section 5a
-  for the full discussion and the `SUDO_ASKPASS` alternative that would avoid it.
+- **Password hashes never leave the target** (since 2026-10-09, Security brief F2). The remote `awk`
+  classifies `/etc/shadow` field 2 into a state name and sends back only that, plus the
+  last-change day and max age. Before, field 2 itself was sent back and classified on the scanning host.
+- **The sudo password travels only on the SSH command's stdin** (since 2026-10-09, Security brief F1),
+  never in a command line, so it no longer shows in the target's process list or command auditing.
+  See the Sudo-Elevation doc, Section 5a.
+- **Unknown SSH host keys are refused by default** (since 2026-10-09, Security brief F3).
+  `AcceptNewHostKey` now defaults to `false`; enroll hosts with `New-SSHTrustedHost` after checking
+  the fingerprint. This reverses the 2026-09-17 decision (Round 9) to keep trust-on-first-use as the default.
 
 ## 8. Phased rollout (Phases 1-5 implemented)
 

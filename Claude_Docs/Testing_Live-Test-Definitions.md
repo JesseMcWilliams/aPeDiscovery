@@ -143,6 +143,36 @@ Import-Csv '{LinuxOutputDir}\LinuxDatabases.csv' | Format-Table Engine, UnitName
 - **Pass when:** exit code is 0; a row with `Engine` = `{DbEngine}` appears, with the unit name `systemctl list-units --type=service` shows on the host; `Listening` matches `sudo ss -tlnp` on the host for the default port.
 - **Notes:** if the row is missing, compare the host's real unit name with the `UnitPattern` in `Get-DefaultLinuxDatabaseSignatures`, and fix the default.
 
+#### LT-LNX-06: Sudo password and hashes never leave the scanner's control
+Proves fixes F1 (sudo password over stdin) and F2 (hashes classified on the target). Needs a host whose scan account has **password-required** sudo, auditd running, and an audit rule that records every command (for example `-a always,exit -F arch=b64 -S execve -k aped`).
+
+```powershell
+{Shell} -File .\Export-LocalLinuxGroups.ps1 -ComputerFilter '{LinuxHost}'; $LASTEXITCODE
+Import-Csv '{LinuxOutputDir}\LinuxLocalUsers.csv' | Group-Object PasswordState | Format-Table Name, Count
+```
+
+Then, on the target: `sudo ausearch -k aped -ts recent -i | grep -c '<the scan account password>'`. Run this on the target only, and clear your shell history afterwards.
+
+- **Pass when:**
+  - exit code is 0;
+  - every row has a non-blank `PasswordState`;
+  - the log has no `sudo elevation was not established` warning;
+  - the `ausearch` count is 0;
+  - `ausearch -k aped -ts recent -i | grep -c base64` is 0.
+- **Notes:** a run of the version before 2026-10-09 against the same rule shows the base64 password in an `execve` record, which makes a useful before/after comparison.
+
+#### LT-LNX-07: Unknown host keys are refused
+Proves fix F3. Needs a Linux host whose key the task account hasn't trusted yet. Remove it first with `Remove-SSHTrustedHost`.
+
+```powershell
+{Shell} -File .\Export-LocalLinuxGroups.ps1 -ComputerFilter '{LinuxHost}'; $LASTEXITCODE
+```
+
+- **Pass when:**
+  - exit code is 1;
+  - `LinuxScanErrors.csv` has a row for `{LinuxHost}` saying its host key isn't trusted, with the `New-SSHTrustedHost` guidance;
+  - after `New-SSHTrustedHost` (with the fingerprint checked against `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the host), a re-run exits 0.
+
 ### Credential sources (via `..\aPeSecrets`)
 
 #### LT-CRED-01: CCP credential source end to end
