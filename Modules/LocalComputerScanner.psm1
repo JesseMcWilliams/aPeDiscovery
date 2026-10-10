@@ -61,7 +61,7 @@ function script:Get-ServiceAccountType {
     .NOTES
         The gMSA/MSA classification is a NAMING-CONVENTION HEURISTIC, not an authoritative check
         against AD's msDS-GroupManagedServiceAccount object class - this script has no AD
-        connectivity of its own (that's Export-ADGroups.ps1's domain). In practice this convention
+        connectivity of its own (that's Export-ADObjects.ps1's domain). In practice this convention
         is essentially always followed, but nothing prevents a real user account from also being
         named with a trailing '$'.
     #>
@@ -173,6 +173,14 @@ function Invoke-LocalComputerScan {
         ServiceAccountRows = [System.Collections.Generic.List[object]]::new()
     }
 
+    # Each runspace gets its own LogaPe logger on the parent's log file; LogaPe's named mutex is keyed
+    # on the file path, so concurrent runspaces still serialize their writes.
+    $logger = if ($LogPath) {
+        New-Logger -Folder (Split-Path -Parent $LogPath) -FileName (Split-Path -Leaf $LogPath) -UseFileNameAsIs -Destination Both -EnableDefaultMasking
+    } else {
+        New-Logger -Destination Console -EnableDefaultMasking
+    }
+
     $maxAttempts = $RetryCount + 1
     $attempt = 0
     while ($attempt -lt $maxAttempts) {
@@ -189,7 +197,7 @@ function Invoke-LocalComputerScan {
         $result.ErrorMessage = ''
 
         try {
-            Write-DiscoveryLog -LogPath $LogPath -Message "Starting scan of computer '$ComputerName' (attempt $attempt/$maxAttempts)."
+            Write-Log -Logger $logger -Level Information -Message "Starting scan of computer '$ComputerName' (attempt $attempt/$maxAttempts)."
 
             if (-not (Test-TcpPortOpen -ComputerName $ComputerName -Port 445 -TimeoutMs $ConnectTimeoutMs)) {
                 throw "Port 445 (SMB/RPC) is not reachable; skipping. Verify the computer is online and that port 445 is not blocked from this host."
@@ -360,20 +368,21 @@ function Invoke-LocalComputerScan {
             }
 
             $result.Success = $true
-            Write-DiscoveryLog -LogPath $LogPath -Message "Completed scan of '$ComputerName': $($result.UserRows.Count) local user(s), $($result.GroupRows.Count) local group(s), $($result.DatabaseRows.Count) database service(s), $($result.SoftwareRows.Count) other software service(s), $($result.ServiceAccountRows.Count) service(s) running as a user/gMSA account."
+            Write-Log -Logger $logger -Level Information -Message "Completed scan of '$ComputerName': $($result.UserRows.Count) local user(s), $($result.GroupRows.Count) local group(s), $($result.DatabaseRows.Count) database service(s), $($result.SoftwareRows.Count) other software service(s), $($result.ServiceAccountRows.Count) service(s) running as a user/gMSA account."
         } catch {
             $result.ErrorMessage = $_.Exception.Message
             if ($attempt -lt $maxAttempts) {
-                Write-DiscoveryLog -Level WARN -LogPath $LogPath -Message "Computer '$ComputerName' attempt $attempt/$maxAttempts failed: $($_.Exception.Message). Retrying in $RetryDelaySeconds second(s)."
+                Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName' attempt $attempt/$maxAttempts failed: $($_.Exception.Message). Retrying in $RetryDelaySeconds second(s)."
                 Start-Sleep -Seconds $RetryDelaySeconds
             } else {
-                Write-DiscoveryLog -Level ERROR -LogPath $LogPath -Message "Computer '$ComputerName' failed after $attempt attempt(s): $($_.Exception.Message)"
+                Write-Log -Logger $logger -Level Error -Message "Computer '$ComputerName' failed after $attempt attempt(s): $($_.Exception.Message)"
             }
         }
 
         if ($result.Success) { break }
     }
 
+    Remove-Logger -Logger $logger
     return $result
 }
 

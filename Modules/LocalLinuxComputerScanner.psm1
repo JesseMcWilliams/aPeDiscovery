@@ -30,6 +30,41 @@ function script:ConvertTo-LinuxSudoAccess {
     return 'Unknown'
 }
 
+function script:ConvertFrom-LinuxFaillockOutput {
+    <#
+    .SYNOPSIS
+        Turns the FAILLOCK section (a FAILLOCK_CONFIGURED/FAILLOCK_NOT_CONFIGURED marker line, then
+        `sudo -n faillock` output for every account with a tally file) into a UserName -> failure
+        record count hashtable. Returns $null when the count can't be trusted: pam_faillock isn't
+        configured in /etc/pam.d (so nothing is being tallied and 0 would be misleading), or any
+        line isn't one of faillock's three line shapes (sudo/permission error text instead of data).
+    .NOTES
+        Every record is counted, valid ("V") or not ("I"). pam_faillock clears an account's tally on
+        a successful login, so the count is "failures since the last successful login" - the same
+        meaning as Windows' BadPasswordAttempts (badPwdCount).
+    #>
+    param([AllowEmptyString()] [AllowNull()] [string[]] $Lines)
+
+    $nonBlank = @($Lines | Where-Object { $_ })
+    if ($nonBlank.Count -eq 0 -or $nonBlank[0] -ne 'FAILLOCK_CONFIGURED') { return $null }
+
+    $counts = @{}
+    $currentUser = $null
+    foreach ($line in ($nonBlank | Select-Object -Skip 1)) {
+        if ($line -match '^(\S+):$') {
+            $currentUser = $Matches[1]
+            $counts[$currentUser] = 0
+        } elseif ($line -match '^When\s+Type\s+Source\s+Valid') {
+            continue
+        } elseif ($line -match '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s' -and $currentUser) {
+            $counts[$currentUser]++
+        } else {
+            return $null
+        }
+    }
+    return $counts
+}
+
 function script:Resolve-LinuxServiceAccountName {
     <#
     .SYNOPSIS
@@ -287,8 +322,22 @@ for u in $(cut -d: -f1 /etc/passwd); do
         echo NO
     fi
 done
+echo '===FAILLOCK==='
+if grep -Eqs '^[[:space:]]*[^#[:space:]].*pam_faillock' /etc/pam.d/*; then
+    echo FAILLOCK_CONFIGURED
+    sudo -n faillock 2>&1
+else
+    echo FAILLOCK_NOT_CONFIGURED
+fi
 echo '===END==='
 '@
+
+    # Same per-runspace LogaPe logger pattern as LocalComputerScanner.psm1's Invoke-LocalComputerScan.
+    $logger = if ($LogPath) {
+        New-Logger -Folder (Split-Path -Parent $LogPath) -FileName (Split-Path -Leaf $LogPath) -UseFileNameAsIs -Destination Both -EnableDefaultMasking
+    } else {
+        New-Logger -Destination Console -EnableDefaultMasking
+    }
 
     $maxAttempts = $RetryCount + 1
     $attempt = 0
@@ -306,7 +355,7 @@ echo '===END==='
         $session = $null
 
         try {
-            Write-DiscoveryLog -LogPath $LogPath -Message "Starting scan of computer '$ComputerName' (attempt $attempt/$maxAttempts)."
+            Write-Log -Logger $logger -Level Information -Message "Starting scan of computer '$ComputerName' (attempt $attempt/$maxAttempts)."
 
             if (-not (Test-TcpPortOpen -ComputerName $ComputerName -Port 22 -TimeoutMs $ConnectTimeoutMs)) {
                 throw "Port 22 (SSH) is not reachable; skipping. Verify the computer is online and that port 22 is not blocked from this host."
@@ -327,7 +376,7 @@ echo '===END==='
                     $sudoCredential = Get-ResolvedCredential -Source $CredentialParams.SudoCredentialSource -Params $sudoCredParams -LogPath $LogPath
                     if ($sudoCredential) { $sudoPassword = $sudoCredential.GetNetworkCredential().Password }
                 } catch {
-                    Write-DiscoveryLog -Level WARN -LogPath $LogPath -Message "Computer '$ComputerName': failed to resolve SudoCredentialSource ('$($CredentialParams.SudoCredentialSource)') - sudo elevation will not be attempted this attempt. $($_.Exception.Message)"
+                    Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName': failed to resolve SudoCredentialSource ('$($CredentialParams.SudoCredentialSource)') - sudo elevation will not be attempted this attempt. $($_.Exception.Message)"
                 }
             } elseif (-not $isKeyBasedAuth) {
                 # Primary auth is password-based and no override was given - reuse it for sudo, per
@@ -388,6 +437,7 @@ echo '===END==='
                     PasswordState       = $null
                     PasswordLastSet     = $null
                     PasswordNeverExpires = $null
+                    BadPasswordAttempts = $null
                     DirectoryJoined     = $null
                     SshPasswordLoginPossible = $null
                     SshKeyLoginPossible      = $null
@@ -427,7 +477,7 @@ echo '===END==='
             # is trusted, since the checks below already verify that independently) ---
             $sudoRefreshLines = @(Get-LinuxSectionLines -Lines $lines -StartMarker '===SUDOREFRESH===' -EndMarker '===SHADOW===' | Where-Object { $_ })
             if ($sudoRefreshLines.Count -gt 0) {
-                Write-DiscoveryLog -Level WARN -LogPath $LogPath -Message "Computer '$ComputerName': sudo elevation was not established for this attempt ($($sudoRefreshLines -join ' / ')) - shadow/sudo-rights data will reflect whatever access already existed without it."
+                Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName': sudo elevation was not established for this attempt ($($sudoRefreshLines -join ' / ')) - shadow/sudo-rights data will reflect whatever access already existed without it."
             }
 
             # --- /etc/shadow (sudo-derived projection) -> merged into UserRows ---
@@ -459,7 +509,7 @@ echo '===END==='
                     }
                 }
             } else {
-                Write-DiscoveryLog -Level WARN -LogPath $LogPath -Message "Computer '$ComputerName': /etc/shadow data unavailable (likely no sudo access for this account) - password-state fields left blank."
+                Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName': /etc/shadow data unavailable (likely no sudo access for this account) - password-state fields left blank."
             }
 
             # --- sudo rights, every discovered account -> SudoRightsRows ---
@@ -497,7 +547,7 @@ echo '===END==='
             foreach ($u in $result.UserRows) { $u.DirectoryJoined = $isDirectoryJoined }
             foreach ($g in $result.GroupRows) { $g.DirectoryJoined = $isDirectoryJoined }
             if ($isDirectoryJoined) {
-                Write-DiscoveryLog -Level WARN -LogPath $LogPath -Message "Computer '$ComputerName' appears to be joined to a directory (sssd/winbind active) - some accounts/groups in this run's output may be directory-sourced, not genuinely local."
+                Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName' appears to be joined to a directory (sssd/winbind active) - some accounts/groups in this run's output may be directory-sourced, not genuinely local."
             }
 
             # --- unit enumeration + properties -> matched against DatabaseSignatures/SoftwareSignatures,
@@ -561,7 +611,7 @@ echo '===END==='
                 })
             }
             if (-not $listeningDataAvailable) {
-                Write-DiscoveryLog -Level WARN -LogPath $LogPath -Message "Computer '$ComputerName': listening-port data unavailable (likely no sudo access for this account) - Listening/database/software port checks left blank, LinuxUnrecognizedListeningPorts.csv skipped for this computer."
+                Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName': listening-port data unavailable (likely no sudo access for this account) - Listening/database/software port checks left blank, LinuxUnrecognizedListeningPorts.csv skipped for this computer."
             }
 
             $matchedPorts = [System.Collections.Generic.List[string]]::new()
@@ -652,7 +702,7 @@ echo '===END==='
             }
             $sshdtDataAvailable = $sshdSettings.ContainsKey('passwordauthentication') -or $sshdSettings.ContainsKey('pubkeyauthentication')
             if (-not $sshdtDataAvailable) {
-                Write-DiscoveryLog -Level WARN -LogPath $LogPath -Message "Computer '$ComputerName': effective sshd configuration unavailable (likely no sudo access for this account) - SshPasswordLoginPossible/SshKeyLoginPossible left blank."
+                Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName': effective sshd configuration unavailable (likely no sudo access for this account) - SshPasswordLoginPossible/SshKeyLoginPossible left blank."
             }
 
             $validShells = @{}
@@ -660,7 +710,7 @@ echo '===END==='
                 $validShells[$line.Trim()] = $true
             }
 
-            $authKeysLines = @(Get-LinuxSectionLines -Lines $lines -StartMarker '===AUTHKEYS===' -EndMarker '===END===')
+            $authKeysLines = @(Get-LinuxSectionLines -Lines $lines -StartMarker '===AUTHKEYS===' -EndMarker '===FAILLOCK===')
             $authKeyMarkerIndices = [System.Collections.Generic.List[object]]::new()
             for ($i = 0; $i -lt $authKeysLines.Count; $i++) {
                 if ($authKeysLines[$i] -match '^===AUTHUSER:(.+)===$') {
@@ -695,15 +745,27 @@ echo '===END==='
                 }
             }
 
+            # --- pam_faillock tallies -> BadPasswordAttempts on every user row ---
+            # An account with no tally file simply doesn't appear in faillock's output, so it gets 0 -
+            # but only when the whole section parsed cleanly; otherwise every row stays blank.
+            $faillockCounts = ConvertFrom-LinuxFaillockOutput -Lines (Get-LinuxSectionLines -Lines $lines -StartMarker '===FAILLOCK===' -EndMarker '===END===')
+            if ($null -ne $faillockCounts) {
+                foreach ($userRow in $result.UserRows) {
+                    $userRow.BadPasswordAttempts = if ($faillockCounts.ContainsKey($userRow.UserName)) { $faillockCounts[$userRow.UserName] } else { 0 }
+                }
+            } else {
+                Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName': pam_faillock tally data unavailable (pam_faillock not configured, or no sudo access for this account) - BadPasswordAttempts left blank."
+            }
+
             $result.Success = $true
-            Write-DiscoveryLog -LogPath $LogPath -Message "Completed scan of '$ComputerName': $($result.UserRows.Count) local user(s), $($result.GroupRows.Count) local group(s), $($result.SudoRightsRows.Count) sudo-rights row(s), $($result.DatabaseRows.Count) database service(s), $($result.SoftwareRows.Count) other software service(s), $($result.ServiceAccountRows.Count) service account(s) of interest."
+            Write-Log -Logger $logger -Level Information -Message "Completed scan of '$ComputerName': $($result.UserRows.Count) local user(s), $($result.GroupRows.Count) local group(s), $($result.SudoRightsRows.Count) sudo-rights row(s), $($result.DatabaseRows.Count) database service(s), $($result.SoftwareRows.Count) other software service(s), $($result.ServiceAccountRows.Count) service account(s) of interest."
         } catch {
             $result.ErrorMessage = $_.Exception.Message
             if ($attempt -lt $maxAttempts) {
-                Write-DiscoveryLog -Level WARN -LogPath $LogPath -Message "Computer '$ComputerName' attempt $attempt/$maxAttempts failed: $($_.Exception.Message). Retrying in $RetryDelaySeconds second(s)."
+                Write-Log -Logger $logger -Level Warning -Message "Computer '$ComputerName' attempt $attempt/$maxAttempts failed: $($_.Exception.Message). Retrying in $RetryDelaySeconds second(s)."
                 Start-Sleep -Seconds $RetryDelaySeconds
             } else {
-                Write-DiscoveryLog -Level ERROR -LogPath $LogPath -Message "Computer '$ComputerName' failed after $attempt attempt(s): $($_.Exception.Message)"
+                Write-Log -Logger $logger -Level Error -Message "Computer '$ComputerName' failed after $attempt attempt(s): $($_.Exception.Message)"
             }
         } finally {
             if ($session) {
@@ -714,6 +776,7 @@ echo '===END==='
         if ($result.Success) { break }
     }
 
+    Remove-Logger -Logger $logger
     return $result
 }
 

@@ -1,6 +1,6 @@
 # Open items
 
-A single, project-wide backlog of everything still outstanding across `Export-ADGroups.ps1`,
+A single, project-wide backlog of everything still outstanding across `Export-ADObjects.ps1`,
 `Export-LocalGroups.ps1`, and `Export-LocalLinuxGroups.ps1` — decisions still needing an answer,
 features designed but not built, and things that need your environment (a specific test account, a
 live domain controller) to finish verifying. Each design doc still carries its own "Open decisions"
@@ -8,17 +8,21 @@ section for narrative/history; this document exists so the full remaining pictur
 assembled by reading all three. Update it as items get resolved or new ones surface, the same way
 each design doc's own Section 10/Revision log is kept current.
 
-Last updated: 2026-09-17 (Round 14: per-account SSH-login eligibility implemented and verified live
-with no new bugs found — the only remaining Linux item is now `BadPasswordAttempts`; see
-[Archive_Design_Local-Linux-Discovery-Revision-Log.md](Archive_Design_Local-Linux-Discovery-Revision-Log.md), Round 14).
+Last updated: 2026-10-09 (Linux `BadPasswordAttempts` built; `Export-ADGroups.ps1` renamed to
+`Export-ADObjects.ps1`; logging moved to the sibling LogaPe module; every verification gap below now
+has a labelled live test in [Testing_Live-Test-Definitions.md](Testing_Live-Test-Definitions.md)).
 
 ## Linux discovery (`Export-LocalLinuxGroups.ps1`)
 
 See [Design_Local-Linux-Discovery.md](Design_Local-Linux-Discovery.md) for full detail on all of
 these.
 
-**Not yet built (the only remaining Linux item):**
-- **`BadPasswordAttempts`** (via `faillock`) — designed (Section 6), not implemented.
+**Built, not yet verified live:**
+- **`BadPasswordAttempts`** (pam_faillock), added 2026-10-09. The parser and the pam.d detection were
+  checked offline against sample output; it needs a real host with pam_faillock enabled (LT-LNX-02)
+  and one without it (LT-LNX-03).
+- **`pam_tally2` isn't read.** Older distros that use pam_tally2 instead of pam_faillock get a blank
+  `BadPasswordAttempts`. Add a fallback only if a real target environment needs it.
 
 **Known, accepted simplification (not blocking, documented in the design doc and CSV schema):**
 - **`SshKeyLoginPossible` only checks the default `~/.ssh/authorized_keys` path** — it does not read
@@ -42,7 +46,7 @@ these.
   `echo | sudo -S` is now wired into `Modules\LocalLinuxComputerScanner.psm1` (a single ticket-refresh
   call per computer, not per account) and verified end-to-end across all three sudo states. The
   `SudoCredentialSource` override path for key-based auth is implemented but not separately verified
-  live, for lack of a matching test scenario.
+  live, for lack of a matching test scenario (LT-LNX-04).
 
 **Needs your environment to finish verifying:**
 - ~~A test account with genuinely password-required sudo rights~~ — **resolved (Round 10)**: the
@@ -51,7 +55,7 @@ these.
   (above) remains unbuilt/unexercised.
 - **MySQL/MariaDB/MongoDB `DatabaseSignatures` are unverified** — only PostgreSQL is installed on the
   current test VM. Needs one of those engines available to confirm the `UnitPattern`/`DefaultPort`
-  starter values now that Phase 5 is built and working.
+  starter values now that Phase 5 is built and working (LT-LNX-05).
 
 **Housekeeping (low priority):**
 - `Secrets\aped-linux-test-key`'s public half is still installed on the test VM. Fine to leave while
@@ -79,12 +83,12 @@ See [Design_Local-Windows-Discovery.md](Design_Local-Windows-Discovery.md) Secti
 - Should retry use exponential backoff instead of a fixed delay? Should a failed attempt resume from
   where it left off rather than restarting the whole per-computer scan?
 - Should `LocalServiceAccounts.csv`'s `LikelyGmsaOrMsa` naming-convention heuristic be upgraded to an
-  authoritative check by cross-referencing `Export-ADGroups.ps1`'s output? Would need to correlate
+  authoritative check by cross-referencing `Export-ADObjects.ps1`'s output? Would need to correlate
   the two scripts' output, since neither has the other's connectivity on its own.
 - Should there be a way to narrow `LocalServiceAccounts.csv` to specific account name(s) of interest,
   rather than always returning every non-built-in/non-virtual account across the estate?
 
-## AD discovery (`Export-ADGroups.ps1`)
+## AD discovery (`Export-ADObjects.ps1`)
 
 See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
 
@@ -101,7 +105,7 @@ See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
 - **Computer object discovery (`ADComputers.csv`) has never been tested against a live domain
   controller** — only verified via a mocked-object pipeline, since no AD/RSAT environment was
   available while building it. Needs `-DomainFilter` validation against a real domain before
-  production use.
+  production use (LT-AD-02).
 
 ## Cross-cutting / project-wide
 
@@ -111,7 +115,17 @@ See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
   [Archive_Design_Local-Linux-Discovery-Revision-Log.md](Archive_Design_Local-Linux-Discovery-Revision-Log.md), Round 10) and that
   testing found and fixed a real output-parsing bug — worth treating `CCP`/`Conjur` with the same
   suspicion until they get the same live-testing treatment, rather than assuming their
-  documented-pattern implementation is correct as written.
+  documented-pattern implementation is correct as written (LT-CRED-01/02).
+- **FIPS-mode hosts need LogaPe's FIPS fix (branch `2026-10-09-fips-mutex-hash`, after 0.5.0).**
+  LogaPe 0.5.0 and the `Logging.psm1` it replaced both named the log mutex with an MD5 hash, which
+  throws on Windows PowerShell 5.1 under FIPS policy and would stop every script at its first log
+  write. The LogaPe fix switches to `SHA256CryptoServiceProvider`. It still needs a run on a
+  FIPS-enforced host to confirm.
+- **LogaPe is now a sibling dependency**, like aPeSecrets: all three scripts import
+  `..\LogaPe\LogaPe\LogaPe.psd1`, so `LogaPe` must be checked out next to this repo. Every logger
+  has LogaPe's default masking on (`-EnableDefaultMasking`), so `password=...`/`token: ...`-style
+  text reaching a log line, including text inside exception messages, is written as `***`. The
+  output CSVs (for example `*ScanErrors.csv`'s `ErrorMessage`) are not masked.
 - **Linux and Windows local discovery still have separate, duplicated `RunspacePool`/retry/error-CSV
   implementations** (`Modules\LocalComputerScanner.psm1` vs. `Modules\LocalLinuxComputerScanner.psm1`)
   rather than a shared orchestration layer — a deliberate choice so far (the two scripts' actual
@@ -120,3 +134,5 @@ See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
 - No automated test suite (Pester or otherwise) exists for any of the three scripts — all
   verification to date has been manual, live testing against real targets (see
   [Testing_Guide.md](Testing_Guide.md)) plus one isolated mock-object test for AD computer discovery.
+  Pure parsers like `ConvertFrom-LinuxFaillockOutput`, `ConvertTo-LinuxPasswordState` and
+  `ConvertTo-LinuxSudoAccess` are the cheapest place to start a Pester suite.

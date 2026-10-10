@@ -1,9 +1,9 @@
 # Local Linux Discovery — Design
 
-**Current status (2026-09-25):** implemented. Phases 1-5 and per-account SSH-login eligibility are built
-and verified live. The one designed item still unbuilt is `BadPasswordAttempts` (`faillock`). The
-MySQL/MariaDB/MongoDB signatures and the key-based `SudoCredentialSource` path are built but not verified
-live. See `Planning_Open-Items.md`.
+**Current status (2026-10-09):** implemented. Phases 1-5 and per-account SSH-login eligibility are built
+and verified live. `BadPasswordAttempts` (pam_faillock) is built and unit-checked offline, but not yet
+verified live (LT-LNX-02/03). The MySQL/MariaDB/MongoDB signatures and the key-based
+`SudoCredentialSource` path are built but not verified live. See `Planning_Open-Items.md`.
 
 **2026-09-21 update:** `Modules\CredentialResolver.psm1` (`Get-DiscoveryCredential`) referenced
 throughout this document was extracted into the sibling **aPeSecrets** project and renamed
@@ -32,9 +32,9 @@ status-bullet character corrupting unit-name extraction from `systemctl list-uni
 and a single `systemctl show <all units>` batch call aborting after only a couple of units when one
 of them wasn't individually queryable (fixed by reverting to a per-unit loop, matching the
 already-proven `SUDOUSER` pattern). CyberArk CP itself is verified live end-to-end too, having caught
-and fixed a real `CLIPasswordSDK.exe` output-parsing bug in `Modules\CredentialResolver.psm1`. The
-only remaining unbuilt item in the whole Linux design is `BadPasswordAttempts` (`faillock`). Linux
-output/input files are entirely separate from the Windows tool's, as decided. See
+and fixed a real `CLIPasswordSDK.exe` output-parsing bug in `Modules\CredentialResolver.psm1`. Every
+item in the Linux design is now built; `BadPasswordAttempts` (`faillock`, added 2026-10-09) is the one
+not yet verified live. Linux output/input files are entirely separate from the Windows tool's, as decided. See
 `Claude_Docs\Planning_Open-Items.md` for the full outstanding-work backlog across this whole project, not just Linux.
 **Initiated:** 2026-09-16
 **Origin:** User request to extend local-account discovery (already built for Windows, via
@@ -74,7 +74,7 @@ visibility into.
 
 ## 2. Context & constraints
 
-- **The control host is Windows** — the same host already running `Export-ADGroups.ps1` and
+- **The control host is Windows** — the same host already running `Export-ADObjects.ps1` and
   `Export-LocalGroups.ps1`. Nothing here assumes PowerShell/`pwsh` is installed on the Linux
   targets themselves; like the Windows script's "no WinRM required" constraint, this should stay
   agentless — reachable over SSH with nothing pre-installed beyond a standard `sh`/`bash` and
@@ -83,7 +83,7 @@ visibility into.
   originally proposed here after finding a proven pattern for it in the sibling `aPePAS` repository
   (`APIModules\Custom\Invoke-CustomTestConnectivity.ps1`). `Posh-SSH` is a PowerShell Gallery module
   (`Install-Module Posh-SSH`), not something built into Windows PowerShell/`pwsh`, so it becomes a
-  new prerequisite on the control host that neither `Export-ADGroups.ps1` nor
+  new prerequisite on the control host that neither `Export-ADObjects.ps1` nor
   `Export-LocalGroups.ps1` needed. See Section 4 for what was verified about it.
 - **CyberArk remains the credential system of record**, per the existing `CredentialResolver.psm1`.
   Unlike the `plink`-based approach originally considered, `Posh-SSH` turns out **not** to need a new
@@ -225,9 +225,9 @@ This doc was split for length. The full sudo-discovery/elevation design (formerl
    one ticket-refresh call per computer per Round 11/12), and per-account SSH-login eligibility
    (`SshPasswordLoginPossible`/`SshKeyLoginPossible`, Round 14) are all implemented in
    `Modules\LocalLinuxComputerScanner.psm1` and verified live across all three sudo states, including
-   graceful degradation to blank/`Unknown` fields when no sudo credential is available at all. **Not
-   yet implemented**: `BadPasswordAttempts` (`faillock`) — the only remaining item in the whole Linux
-   design (Section 6).
+   graceful degradation to blank/`Unknown` fields when no sudo credential is available at all.
+   `BadPasswordAttempts` (`faillock`, Data-Model doc Section 6) was added 2026-10-09 and is not yet
+   verified live.
 5. **Phase 5 — implemented and verified live (Round 13).** `LinuxDatabases.csv`/`LinuxSoftware.csv`
    (systemd-unit-name signature matching, enriched via `systemctl show`, listening confirmed via one
    `ss -tlnp` capture per computer rather than a probe per signature), `LinuxServiceAccounts.csv`

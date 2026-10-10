@@ -12,15 +12,15 @@ a separate/lighter-weight test method invented just for this guide.
 
 ---
 
-## 1. Export-ADGroups.ps1
+## 1. Export-ADObjects.ps1
 
 ### 1.1 Basic connectivity and group export
 
 ```powershell
-.\Export-ADGroups.ps1 -DomainFilter 'contoso.com' -Verbose
+.\Export-ADObjects.ps1 -DomainFilter 'contoso.com' -Verbose
 ```
 Check: exit code `0`, `ADGroups.csv`/`ADGroupMembers.csv` written with rows for that domain only, and
-the log (`<OutputDirectory>\Logs`) has no `ERROR` lines. If it fails, check `CredentialSource`/
+the log (`<OutputDirectory>\Logs`) has no `Error` lines. If it fails, check `CredentialSource`/
 `CredentialParams` for that domain first (see [Reference_Configuration.md](Reference_Configuration.md#credential-sources)),
 then `Server` (an explicit DC/GC may be required for an untrusted domain).
 
@@ -89,7 +89,7 @@ mismatch would indicate shared-state corruption between runspaces. Remove the du
 ### 2.3 Retry (`RetryCount`/`RetryDelaySeconds`)
 
 Point a row at a computer that's briefly unreachable (or temporarily block port 445 to it), set
-`RetryCount: 2`, run, and confirm the log shows multiple `WARN` attempt lines for that computer
+`RetryCount: 2`, run, and confirm the log shows multiple `Warning` attempt lines for that computer
 before it's finally recorded in `LocalScanErrors.csv` — not just one failure.
 
 ### 2.4 Exclude filters (`ExcludeUserNames`/`ExcludeGroupNames`)
@@ -132,7 +132,7 @@ Import-Csv .\Output\LocalUsers.csv | Select-Object UserName, PasswordLastSet, Pa
 Spot-check a couple of known accounts' values against what Computer Management's "Local Users and
 Groups" snap-in shows for the same accounts on that machine. Point `-ComputerFilter` at a
 nonexistent/unreachable hostname and confirm it produces exactly one row in `LocalScanErrors.csv`
-with a clear `ErrorMessage`, while the exit code is `1` and the log has a corresponding `ERROR` line.
+with a clear `ErrorMessage`, while the exit code is `1` and the log has a corresponding `Error` line.
 
 ---
 
@@ -188,7 +188,7 @@ non-blank `PasswordState` (one of `PasswordSet`/`PasswordSetButLocked`/`LockedNo
 `SystemNoLogin`/`SystemNoLoginLocked`) and that a locked/system account's `PasswordNeverExpires`
 matches what you'd expect from `sudo cat /etc/shadow` directly on the target. If the connecting
 account has **no** sudo rights, confirm these fields come back blank for every account (not an error)
-and the log has a `WARN` line noting shadow data was unavailable for that computer.
+and the log has a `Warning` line noting shadow data was unavailable for that computer.
 
 ### 3.6 Sudo rights discovery
 
@@ -225,9 +225,9 @@ target another account checks via `-U`). Confirm:
 Import-Csv .\Output\Linux\LinuxLocalUsers.csv | Where-Object UserName -eq '<that account>' | Format-List PasswordState, PasswordLastSet
 ```
 `PasswordState` should be populated (e.g. `PasswordSet`), proving real elevation happened via the
-account's own password rather than relying on `NOPASSWD`. No `WARN` about "sudo elevation was not
+account's own password rather than relying on `NOPASSWD`. No `Warning` about "sudo elevation was not
 established" should appear in the log for this run. Then test the opposite: an account with **no**
-sudo access at all as the connecting account, and confirm the fields come back blank with a `WARN`
+sudo access at all as the connecting account, and confirm the fields come back blank with a `Warning`
 logged, but the scan still succeeds (exit code `0`, other computers unaffected).
 
 ### 3.9 Database/software detection and service accounts (Phase 5)
@@ -252,7 +252,7 @@ a service that runs via a privilege-dropping wrapper (PostgreSQL's `pg_ctlcluste
 if installed) — confirm its row shows the *real* running account, not `root`, even though
 `systemctl show <unit> --property=User` for that same unit may come back blank. If the connecting
 account has no usable sudo access, confirm `Listening` is blank throughout and
-`LinuxUnrecognizedListeningPorts.csv` is empty, with a `WARN` logged, rather than the scan failing.
+`LinuxUnrecognizedListeningPorts.csv` is empty, with a `Warning` logged, rather than the scan failing.
 
 ### 3.10 Per-account SSH login eligibility
 
@@ -271,14 +271,37 @@ Cross-check a few accounts you already know the ground truth for:
   `sudo cat ~<user>/.ssh/authorized_keys` directly on the target), confirm `SshKeyLoginPossible =
   False` for it even if `PubkeyAuthentication` is otherwise enabled host-wide.
 Then test with a connecting account that has **no** sudo access: confirm both fields come back blank
-(`$null`, not `False`) for every account, with a `WARN` logged about the effective sshd configuration
+(`$null`, not `False`) for every account, with a `Warning` logged about the effective sshd configuration
 being unavailable, and the scan still succeeding.
+
+### 3.11 Bad password attempts (`BadPasswordAttempts`, pam_faillock)
+
+Requires usable sudo on the target, and pam_faillock enabled in its PAM stack (RHEL 8+ via
+`authselect enable-feature with-faillock`; on Ubuntu/Debian add `pam_faillock.so` to
+`/etc/pam.d/common-auth` by hand). First generate known failures: from another machine, attempt SSH
+password login as a test account with a wrong password (for example `ThisIsMy_FAKE_Password6!`) N
+times, staying under the lockout threshold (`deny` in `/etc/security/faillock.conf`, default 3).
+```powershell
+Import-Csv .\Output\Linux\LinuxLocalUsers.csv | Select-Object UserName, BadPasswordAttempts | Format-Table
+```
+Confirm:
+- The test account shows `N`, matching `sudo faillock --user <account>` on the target.
+- An account with no failures shows `0`, not blank.
+- After the test account logs in successfully (or after `sudo faillock --user <account> --reset`), a re-run shows `0`.
+- Against a host **without** pam_faillock in `/etc/pam.d`, or with a connecting account that has no
+  sudo, every row is blank (not `0`), a `Warning` about pam_faillock tally data is logged, and the scan
+  still succeeds.
 
 ---
 
-## 4. Things this guide deliberately does not cover
+## 4. Logging (LogaPe)
 
-`BadPasswordAttempts` for Linux accounts is designed but not yet built, so there's no test procedure
-for it here — see [Design_Local-Linux-Discovery.md](Design_Local-Linux-Discovery.md) Section 8. It's
-the only remaining unbuilt item in the Linux design; add a section here once it's implemented,
-following the same "one real target, inspect the CSV directly, then scale up" pattern used above.
+All three scripts log through the sibling [LogaPe](../../LogaPe) module. Each run writes one
+`<ScriptName>_<yyyyMMdd_HHmmss>.log` under the config's `LogDirectory` (default
+`<OutputDirectory>\Logs`), in LogaPe's `<timestamp> | <Level> | <message>` format; the levels are
+`Information`, `Warning` and `Error`. Every logger has LogaPe's default masking on, so
+`password=...`-style text is written as `***`. To check this, add a `ComputersToScan.csv` row named
+`password=ThisIsMy_FAKE_Password6!`, run, and confirm that string appears nowhere in the log or
+console output (the row still fails and appears in `LocalScanErrors.csv`). The concurrency checks in 2.2 and 3.3 also cover logging: every
+`Starting scan`/`Completed scan` line from every runspace must appear whole, on its own line, in the
+single run log.

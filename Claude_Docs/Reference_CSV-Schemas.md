@@ -4,7 +4,7 @@ All files are UTF-8, comma-delimited, with a header row (`Export-Csv -NoTypeInfo
 
 ## Script overview
 
-- **Export-ADGroups.ps1** — reads `Config\ScanConfig.json`, scans one or more
+- **Export-ADObjects.ps1** — reads `Config\ScanConfig.json`, scans one or more
   domains for groups (optionally scoped to a base OU and OU depth, with
   optional per-domain `ExcludeOUs`/`IncludeGroupCategories`/
   `IncludeGroupScopes`/`ExcludeGroupNames` filters), and writes
@@ -74,7 +74,7 @@ All three scripts:
   timestamped copy under `Output\Archive` for history, with a configurable
   retention count.
 
-## ADGroups.csv (Export-ADGroups.ps1)
+## ADGroups.csv (Export-ADObjects.ps1)
 
 | Column | Description |
 |---|---|
@@ -92,7 +92,7 @@ All three scripts:
 | ParentOU | DN of the OU the group was found directly under. |
 | MemberCount | Count of the group's `member` attribute at scan time. **Note:** AD's default 1,500-value range limit on the `member` attribute means this count (and the raw-DN fallback path used for membership resolution) can be incomplete for groups with more than ~1,500 direct members; `Get-ADGroupMember`, the primary path used for the membership rows themselves, is not affected by this limit. |
 
-## ADGroupMembers.csv (Export-ADGroups.ps1)
+## ADGroupMembers.csv (Export-ADObjects.ps1)
 
 Direct members only — nested groups are **not** expanded. One row per (group, direct member) pair.
 
@@ -108,7 +108,7 @@ Direct members only — nested groups are **not** expanded. One row per (group, 
 | MemberSID | Member's SID. |
 | MemberObjectClass | e.g. `user`, `group`, `computer`, `foreignSecurityPrincipal`. |
 
-## ADComputers.csv (Export-ADGroups.ps1)
+## ADComputers.csv (Export-ADObjects.ps1)
 
 One row per AD computer object found. Only produced for domains whose config entry has a
 `Computers` block (see [Reference_Configuration.md](Reference_Configuration.md#computer-object-discovery-computers)) —
@@ -285,6 +285,7 @@ plus a `sudo`-derived `/etc/shadow` projection.
 | PasswordState | One of `PasswordSet`, `PasswordSetButLocked`, `LockedNoHash`, `NeverSet`, `SystemNoLogin`, `SystemNoLoginLocked`, `Unknown` — classified from `/etc/shadow` field 2's shape (real hash, `!`-prefixed hash, bare `!`, `!!`, `*`, `!*`). Blank when the connecting account has no usable `sudo` access to read `/etc/shadow` at all (a warning is logged for that computer, not an error — the rest of the scan still succeeds). |
 | PasswordLastSet | `/etc/shadow` field 3 (days since the Unix epoch), converted to a date locally. Blank under the same conditions as `PasswordState`, or when the field itself is empty. |
 | PasswordNeverExpires | `True` when `/etc/shadow` field 4 (max password age) is empty or the standard shadow-utils "effectively never" sentinel (≥ 99999 days); `False` when it's a smaller real number; blank under the same conditions as `PasswordState`. |
+| BadPasswordAttempts | Number of failed-authentication records in the account's pam_faillock tally (`sudo -n faillock`), i.e. failures since its last successful login; `0` when the account has no tally. Blank for every row on a computer whose `/etc/pam.d` doesn't load `pam_faillock` (nothing is tallied, so `0` would mislead) or whose `faillock` output couldn't be read (no usable sudo). `pam_tally2` is not read. |
 | DirectoryJoined | `True` when this computer appears to be joined to a directory service (`sssd` actually active with a real `/etc/sssd/sssd.conf`, or `winbind` actually active) — **not** merely whether `/etc/nsswitch.conf` mentions `sss` (confirmed live: that alone is unreliable — a base image can reference it with `sssd` never actually configured/active). Informational only: users/groups are still collected normally either way; this just flags that some entries on a `True` computer may be directory-sourced rather than genuinely local. |
 | SshPasswordLoginPossible | `True` when the account could actually log in over SSH with a password: effective `PasswordAuthentication` is `yes` (from `sudo -n sshd -T`, the fully-resolved config — not a `sshd_config` grep, which would miss anything left at a compiled-in default), the account has a real usable password (`PasswordState = PasswordSet`), its shell is in `/etc/shells`, and — for `root` specifically — `PermitRootLogin` isn't set to a password-blocking value. Blank/`Unknown` when the connecting account had no sudo access to read the effective sshd config or `PasswordState` itself. |
 | SshKeyLoginPossible | `True` when the account could log in over SSH with a key: effective `PubkeyAuthentication` is `yes`, its `~/.ssh/authorized_keys` file exists and is non-empty (checked via `sudo -n test -s`, needed to read another account's `0700` home directory), and its shell is in `/etc/shells`. **Only the default `~/.ssh/authorized_keys` path is checked** — a customized `AuthorizedKeysFile` directive in `sshd_config` isn't accounted for (see [Planning_Open-Items.md](Planning_Open-Items.md)). Blank/`Unknown` when the connecting account had no sudo access to check. |
@@ -354,7 +355,7 @@ the actual instantiated `postgresql@18-main.service`, and both match the `postgr
 | StartType | The unit's `UnitFileState` (e.g. `enabled`, `enabled-runtime`, `disabled`, `static`, `masked`) — confirmed live to have more than the four commonly-documented values (`enabled-runtime` seen on the instantiated PostgreSQL unit). |
 | Path | The unit's raw `ExecStart` property text (includes the full wrapper command line where one exists, e.g. `pg_ctlcluster`) — not simplified, since simplifying it risks losing real detail (like which wrapper actually launched the engine). |
 | DefaultPort | The signature's configured default port, or blank when the signature has none. |
-| Listening | `True`/`False` result of checking `DefaultPort` against a single `ss -tlnp` capture for that computer, or blank when `DefaultPort` is blank **or** the connecting account had no usable sudo access to run `ss -tlnp` at all (a `WARN` is logged in that case — see [Reference_Configuration.md](Reference_Configuration.md#sudo-dependent-fields-and-elevation)). |
+| Listening | `True`/`False` result of checking `DefaultPort` against a single `ss -tlnp` capture for that computer, or blank when `DefaultPort` is blank **or** the connecting account had no usable sudo access to run `ss -tlnp` at all (a `Warning` is logged in that case — see [Reference_Configuration.md](Reference_Configuration.md#sudo-dependent-fields-and-elevation)). |
 
 ## LinuxSoftware.csv (Export-LocalLinuxGroups.ps1)
 

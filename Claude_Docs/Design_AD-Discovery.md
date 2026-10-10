@@ -6,7 +6,8 @@
 data, across one or more domains — including domains with no trust relationship to the host running
 the scan — for import into a separate downstream tool.
 
-This document describes the design behind `Export-ADGroups.ps1`. See
+This document describes the design behind `Export-ADObjects.ps1` (named `Export-ADGroups.ps1` until
+2026-10-09; renamed because it also exports computer objects; output CSV names are unchanged). See
 [Reference_Configuration.md](Reference_Configuration.md) for the full config schema and
 [Reference_CSV-Schemas.md](Reference_CSV-Schemas.md) for exact output columns; this doc focuses on the *why* behind the
 shape of the thing, not a field-by-field reference.

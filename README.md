@@ -9,11 +9,11 @@ Conjur) or a pre-exported `PSCredential` file, rather than relying on a single
 identity. Credential resolution itself lives in the sibling
 [aPeSecrets](../aPeSecrets) project (`Modules\CredentialResolver.psm1`,
 `Get-ResolvedCredential`) — this repo depends on it rather than carrying its
-own copy.
+own copy. Logging uses the sibling [LogaPe](../LogaPe) module the same way.
 
 ## Features
 
-- **Export-ADGroups.ps1** — AD group/membership export, with optional per-domain computer object discovery.
+- **Export-ADObjects.ps1** — AD group/membership export, with optional per-domain computer object discovery. (Named `Export-ADGroups.ps1` before 2026-10-09.)
 - **Export-LocalGroups.ps1** — per-computer local Windows user/group/membership export, plus database/software/service-account detection.
 - **Export-LocalLinuxGroups.ps1** — per-computer local Linux user/group/membership export over SSH, plus sudo rights discovery/elevation and database/software/service-account detection.
 - All three scan concurrently, continue past a failed domain/computer (logging the error and exiting `1` at the end if anything failed, so a Scheduled Task can alert), and write a stable fixed-name CSV set plus a timestamped archive copy.
@@ -23,7 +23,10 @@ See [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md)
 ## Prerequisites
 
 - Windows PowerShell 5.1 (or PowerShell 7+).
-- **Export-ADGroups.ps1** requires the RSAT `ActiveDirectory` PowerShell
+- The sibling [aPeSecrets](../aPeSecrets) and [LogaPe](../LogaPe) repos,
+  checked out next to this one (for example `C:\Code\aPeDiscovery`,
+  `C:\Code\aPeSecrets`, `C:\Code\LogaPe`).
+- **Export-ADObjects.ps1** requires the RSAT `ActiveDirectory` PowerShell
   module on the host running it, and network line-of-sight to a DC in each
   target domain (a trust relationship is not required — only `-Server` +
   explicit credentials are used).
@@ -38,7 +41,7 @@ See [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md)
   connectivity to each target. It scans computers concurrently via the same
   kind of `RunspacePool` as `Export-LocalGroups.ps1`, throttled by
   `MaxConcurrency`. Sudo-derived fields (`PasswordState`/`PasswordLastSet`/
-  `PasswordNeverExpires`, and any sudo rights beyond "no access") need the
+  `PasswordNeverExpires`/`BadPasswordAttempts`, and any sudo rights beyond "no access") need the
   connecting account to have usable `sudo` rights on the target; without it,
   those fields/rows are simply left blank rather than failing the scan.
 - For `CP`/`CCP`/`Conjur` credential sources: the relevant CyberArk client
@@ -59,7 +62,7 @@ See [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md)
 4. Run a single domain/computer first to validate credentials before scanning
    everything:
    ```powershell
-   .\Export-ADGroups.ps1 -DomainFilter 'contoso.com'
+   .\Export-ADObjects.ps1 -DomainFilter 'contoso.com'
    .\Export-LocalGroups.ps1 -ComputerFilter 'SRV-APP01'
    .\Export-LocalLinuxGroups.ps1 -ComputerFilter 'lnx-app01.contoso.com'
    ```
@@ -69,17 +72,16 @@ See [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md)
 ## Repository layout
 
 ```
-Export-ADGroups.ps1            Domain group + membership export
+Export-ADObjects.ps1           Domain group + membership (+ optional computer object) export
 Export-LocalGroups.ps1         Per-computer local Windows user/group/membership discovery
 Export-LocalLinuxGroups.ps1    Per-computer local Linux user/group/membership/sudo-rights discovery
 Modules\
   ADHelpers.psm1                 OU-depth-scoped search helper
-  Logging.psm1                   Shared timestamped file+console logging (thread-safe)
   NetworkHelpers.psm1            TCP-connect reachability probe
   LocalComputerScanner.psm1      Per-computer local Windows scan (run in a runspace pool)
   LocalLinuxComputerScanner.psm1 Per-computer local Linux scan over SSH (run in a runspace pool)
 Config\
-  ScanConfig.example.json                Template for Export-ADGroups.ps1
+  ScanConfig.example.json                Template for Export-ADObjects.ps1
   ComputersToScan.example.csv            Template for Export-LocalGroups.ps1 input
   LocalScanConfig.example.json           Template for Export-LocalGroups.ps1 run settings
   LinuxComputersToScan.example.csv       Template for Export-LocalLinuxGroups.ps1 input
@@ -88,11 +90,13 @@ Claude_Docs\
   Reference_Configuration.md                     Full config/credential-source reference
   Reference_CSV-Schemas.md                       Script/output column reference
   Testing_Guide.md                     Step-by-step validation procedures for every feature
+  Testing_Live-Test-Definitions.md     Labelled (LT-*) repeatable live tests, placeholders only
   Planning_Open-Items.md                        Project-wide backlog: open decisions, unbuilt features, verification gaps
+  Planning_User-Docs-Backlog.md        User-visible changes still to write up in User_Docs
   Design_AD-Discovery.md               Design doc - AD group export (implemented)
   Design_Local-Windows-Discovery.md    Design doc - local Windows discovery (implemented)
   Design_Local-Linux-Discovery.md      Design doc - local Linux discovery, plus split-out
-                                        Sudo-Elevation/Data-Model docs (mostly implemented)
+                                        Sudo-Elevation/Data-Model docs (implemented)
 User_Docs\
   Scheduled-Task-Setup.md              Unattended scheduling guidance
 Output\                     Default (gitignored) output/log/archive location
@@ -122,4 +126,4 @@ domain/computer names and credential-source parameters — commit only the
     implemented and verified live against a real Ubuntu VM (see also its split-out
     [Sudo-Elevation](Claude_Docs/Design_Local-Linux-Discovery-Sudo-Elevation.md) and
     [Data-Model](Claude_Docs/Design_Local-Linux-Discovery-Data-Model.md) docs).
-    `BadPasswordAttempts` remains designed but not yet built — the only unbuilt item left.
+    `BadPasswordAttempts` (pam_faillock) is built but not yet verified live.

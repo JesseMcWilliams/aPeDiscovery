@@ -1,14 +1,15 @@
 # aPeDiscovery: Claude Code project notes
 
-PowerShell scripts that export Active Directory group/membership data and per-computer local Windows/Linux user, group and sudo-rights data to CSV, using CyberArk-resolved credentials. Runtime target is Windows PowerShell 5.1 (or PowerShell 7+); strict mode usage is not confirmed repo-wide, check the top of each script/module before assuming it.
+PowerShell scripts that export Active Directory group/membership data and per-computer local Windows/Linux user, group and sudo-rights data to CSV, using CyberArk-resolved credentials. Runtime target is Windows PowerShell 5.1 (or PowerShell 7+); no `Set-StrictMode` or `#Requires` is used anywhere, so strict mode is not enabled.
 
 ## Folder map
-- `Export-ADGroups.ps1`, `Export-LocalGroups.ps1`, `Export-LocalLinuxGroups.ps1`: the three entry-point scripts (AD groups, local Windows, local Linux).
-- `Modules/`: `ADHelpers.psm1`, `Logging.psm1`, `NetworkHelpers.psm1`, `LocalComputerScanner.psm1`, `LocalLinuxComputerScanner.psm1` (719 lines — grep for the function and read a line range; don't read the whole file).
+- `Export-ADObjects.ps1`, `Export-LocalGroups.ps1`, `Export-LocalLinuxGroups.ps1`: the three entry-point scripts (AD groups, local Windows, local Linux).
+- `Modules/`: `ADHelpers.psm1`, `NetworkHelpers.psm1`, `LocalComputerScanner.psm1`, `LocalLinuxComputerScanner.psm1` (783 lines — grep for the function and read a line range; don't read the whole file).
 - `Config/`: `.example.json`/`.example.csv` templates (tracked) plus the real `ScanConfig.json`/`LocalScanConfig.json`/`LinuxScanConfig.json`/`ComputersToScan.csv`/`LinuxComputersToScan.csv` (gitignored, real domain/computer/credential data).
 - `Output/`: gitignored runtime output/log/archive location — don't read from here for facts.
 - `Secrets/`: gitignored credential files (Export-Clixml, SSH keys).
 - Credential resolution itself lives in the sibling `../aPeSecrets` project (`Modules/CredentialResolver.psm1`); all three scripts import it by relative path.
+- Logging is the sibling `../LogaPe` module (`LogaPe/LogaPe.psd1`), imported by relative path. Entry scripts create one active logger per run; each scanner runspace creates its own logger on the same file (`-Logger $logger`) and calls `Remove-Logger` when done. Every `New-Logger` call passes `-EnableDefaultMasking`; keep it on any new logger. Don't reintroduce a local logging module.
 - External references are in `C:\Code\References\`. Check there before guessing at API behavior.
 
 ## Tests
