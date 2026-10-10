@@ -6,7 +6,7 @@
   "ConnectTimeoutMs": 2000,
   "SshConnectTimeoutSeconds": 15,
   "CommandTimeoutSeconds": 120,
-  "AcceptNewHostKey": true,
+  "AcceptNewHostKey": false,
   "RetryCount": 1,
   "RetryDelaySeconds": 5,
   "DatabaseSignatures": [

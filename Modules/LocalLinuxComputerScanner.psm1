@@ -1,20 +1,3 @@
-function script:ConvertTo-LinuxPasswordState {
-    <#
-    .SYNOPSIS
-        Classifies a /etc/shadow field-2 value per the states confirmed live against a real Linux
-        VM (see Claude_Docs\Design_Local-Linux-Discovery-Data-Model.md, Section 6).
-    #>
-    param([string] $ShadowField2)
-
-    if ($ShadowField2 -eq '*') { return 'SystemNoLogin' }
-    if ($ShadowField2 -eq '!*') { return 'SystemNoLoginLocked' }
-    if ($ShadowField2 -eq '!!') { return 'NeverSet' }
-    if ($ShadowField2 -eq '!') { return 'LockedNoHash' }
-    if ($ShadowField2 -like '!*') { return 'PasswordSetButLocked' }
-    if ($ShadowField2 -match '^\$') { return 'PasswordSet' }
-    return 'Unknown'
-}
-
 function script:ConvertTo-LinuxSudoAccess {
     <#
     .SYNOPSIS
@@ -165,9 +148,9 @@ function Invoke-LocalLinuxComputerScan {
 
         A single SSH command per attempt collects /etc/passwd, /etc/group, a sudo-derived
         /etc/shadow projection, every discovered account's `sudo -n -l -U <user>` output, and a
-        directory-join check, using marker lines to delimit sections - Invoke-SSHCommand's .Output
-        is a string ARRAY (confirmed live), so sections are found by marker-line index, not by
-        splitting a joined string.
+        directory-join check, using marker lines to delimit sections. The command runs through
+        SSH.NET's SshCommand (the Posh-SSH session's .Session) so its stdin can carry the sudo
+        password; its output string is split into lines and sections are found by marker-line index.
 
         Directory-join detection (DirectoryJoined on every user/group row) checks whether `sssd` is
         actually active AND has a real /etc/sssd/sssd.conf, or whether `winbind` is active - NOT
@@ -186,12 +169,14 @@ function Invoke-LocalLinuxComputerScan {
         Sudo elevation (decided 2026-09-17 - see Claude_Docs\Design_Local-Linux-Discovery-Sudo-Elevation.md,
         Round 11): a resolved sudo password (reused from the primary credential when it's
         password-based, or from SudoCredentialSource/SudoCredentialParams when the primary is
-        key-based or an explicit override is configured) is piped into ONE `sudo -S -p '' -v` ticket
+        key-based or an explicit override is configured) feeds ONE `sudo -S -p '' -v` ticket
         refresh at the very top of the remote command - confirmed live that this makes every
         subsequent `sudo -n` call in the same script succeed for the rest of that script's run,
-        without needing the password again. This exposes the password to the target's own process
-        list only once per computer per attempt, not once per `sudo -n` call (of which there can be
-        dozens - one per discovered account). The refresh is skipped (falls straight through to the
+        without needing the password again. Since 2026-10-09 (Security brief F1) the password is
+        written to the command's stdin, read by `IFS= read -r` and piped on with the shell builtin
+        `printf`, so it never appears in a command line on the target (process list, auditd execve
+        records, EDR command-line telemetry). Before that it was embedded, base64-encoded, in the
+        command text itself. The refresh is skipped (falls straight through to the
         existing -n-only behavior) when no sudo credential can be resolved at all - the account may
         already have NOPASSWD rights, or elevation simply stays unavailable, exactly as before this
         was added.
@@ -240,13 +225,11 @@ function Invoke-LocalLinuxComputerScan {
         `$null` (not `False`) when the underlying data couldn't be obtained (no sudo), so a downstream
         consumer can distinguish "confirmed not possible" from "unknown".
     .NOTES
-        Never logs the resolved credential's or sudo credential's password/passphrase, and never
-        parses/logs raw /etc/shadow content (password hashes) - only the specific derived fields
-        (locked/hasset/never-expires-ish, last-change day, max-age) are ever extracted. The password
-        is base64-encoded before being embedded in the remote command text solely to avoid any shell
-        metacharacter in the password breaking the remote script's syntax - this is not a security
-        measure (base64 is trivially reversible) and does not change what's exposed on the wire (SSH
-        already encrypts the whole command) or on the target's process list while `sudo -S` runs.
+        Never logs the resolved credential's or sudo credential's password/passphrase. Password
+        hashes never leave the target: the remote awk classifies /etc/shadow field 2 into a state
+        name (PasswordSet, LockedNoHash, ...) and sends back only that, the last-change day and the
+        max age (Security brief F2). The sudo password travels only on the SSH command's stdin
+        (F1). Unknown SSH host keys are refused unless AcceptNewHostKey is true (F3).
     #>
     [CmdletBinding()]
     param(
@@ -258,7 +241,7 @@ function Invoke-LocalLinuxComputerScan {
         [int] $ConnectTimeoutMs = 2000,
         [int] $SshConnectTimeoutSeconds = 15,
         [int] $CommandTimeoutSeconds = 60,
-        [bool] $AcceptNewHostKey = $true,
+        [bool] $AcceptNewHostKey = $false,
         [int] $RetryCount = 0,
         [int] $RetryDelaySeconds = 5,
         [object[]] $DatabaseSignatures = @(),
@@ -289,10 +272,12 @@ cat /etc/passwd
 echo '===GROUP==='
 cat /etc/group
 echo '===SUDOREFRESH==='
-__SUDO_REFRESH__
+IFS= read -r APED_SUDO_PW || true
+if [ -n "$APED_SUDO_PW" ]; then printf '%s\n' "$APED_SUDO_PW" | sudo -S -p '' -v 2>&1; fi
+APED_SUDO_PW=''; unset APED_SUDO_PW
 sudo -n true 2>&1
 echo '===SHADOW==='
-sudo -n awk -F: '{print $1":"$2":"$3":"$5}' /etc/shadow 2>&1
+sudo -n awk -F: '{ s = $2; if (s == "*") t = "SystemNoLogin"; else if (s == "!*") t = "SystemNoLoginLocked"; else if (s == "!!") t = "NeverSet"; else if (s == "!") t = "LockedNoHash"; else if (substr(s, 1, 1) == "!") t = "PasswordSetButLocked"; else if (substr(s, 1, 1) == "$") t = "PasswordSet"; else t = "Unknown"; print $1 ":" t ":" $3 ":" $5 }' /etc/shadow 2>&1
 echo '===SUDO==='
 for u in $(cut -d: -f1 /etc/passwd); do echo "===SUDOUSER:$u==="; sudo -n -l -U "$u" 2>&1; done
 echo '===DIRJOIN==='
@@ -389,15 +374,6 @@ echo '===END==='
             # exactly as it did before elevation existed (NOPASSWD accounts still work; everything
             # else degrades gracefully to blank/Unknown fields).
 
-            $sudoRefreshLine = if ($sudoPassword) {
-                $sudoPasswordBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($sudoPassword))
-                "echo `"`$(echo $sudoPasswordBase64 | base64 -d)`" | sudo -S -p '' -v 2>&1"
-            } else {
-                'true'
-            }
-            $remoteCommand = $remoteCommandTemplate.Replace('__SUDO_REFRESH__', $sudoRefreshLine)
-            $sudoPassword = $null
-
             $sshParams = @{
                 ComputerName      = $ComputerName
                 Credential        = $credential
@@ -405,18 +381,52 @@ echo '===END==='
                 ConnectionTimeout = $SshConnectTimeoutSeconds
                 ErrorAction       = 'Stop'
             }
-            if ($AcceptNewHostKey) { $sshParams.AcceptKey = $true }
+            # Unknown host keys are refused unless AcceptNewHostKey is set (trust on first use is
+            # opt-in, Security brief F3). -ErrorOnUntrusted makes Posh-SSH fail instead of prompting,
+            # which a runspace can't answer.
+            if ($AcceptNewHostKey) { $sshParams.AcceptKey = $true } else { $sshParams.ErrorOnUntrusted = $true }
             if ($CredentialParams.ContainsKey('KeyFilePath') -and $CredentialParams.KeyFilePath) {
                 $sshParams.KeyFile = $CredentialParams.KeyFilePath
             }
 
-            $session = New-SSHSession @sshParams
-            $sshResult = Invoke-SSHCommand -SSHSession $session -Command $remoteCommand -TimeOut $CommandTimeoutSeconds
-            if (-not $sshResult.Output) {
-                throw "Remote command returned no output (ExitStatus=$($sshResult.ExitStatus))."
+            try {
+                $session = New-SSHSession @sshParams
+            } catch {
+                if (-not $AcceptNewHostKey -and $_.Exception.Message -match 'trust|fingerprint|host key') {
+                    throw "SSH host key for '$ComputerName' isn't trusted yet ($($_.Exception.Message)). Verify the host's key fingerprint out of band, then trust it as the task account with New-SSHTrustedHost, or set AcceptNewHostKey to true for one enrollment run."
+                }
+                throw
             }
 
-            $lines = @($sshResult.Output)
+            # The script runs through SSH.NET directly rather than Invoke-SSHCommand, so the sudo
+            # password can be written to the command's stdin, where the script's first lines read
+            # it. It never appears in any process's command line on the target (Security brief F1).
+            $sshCommand = $session.Session.CreateCommand($remoteCommandTemplate)
+            $sshCommand.CommandTimeout = [TimeSpan]::FromSeconds($CommandTimeoutSeconds)
+            try {
+                $asyncResult = $sshCommand.BeginExecute()
+                $inputStream = $sshCommand.CreateInputStream()
+                try {
+                    if ($sudoPassword) {
+                        $passwordBytes = [System.Text.Encoding]::UTF8.GetBytes($sudoPassword + "`n")
+                        $inputStream.Write($passwordBytes, 0, $passwordBytes.Length)
+                        [Array]::Clear($passwordBytes, 0, $passwordBytes.Length)
+                    }
+                } finally {
+                    # Closing the stream sends EOF, so the script's `read` returns even with no password.
+                    $inputStream.Dispose()
+                }
+                $sudoPassword = $null
+                $commandOutput = $sshCommand.EndExecute($asyncResult)
+                $exitStatus = $sshCommand.ExitStatus
+            } finally {
+                $sshCommand.Dispose()
+            }
+            if (-not $commandOutput) {
+                throw "Remote command returned no output (ExitStatus=$exitStatus)."
+            }
+
+            $lines = @($commandOutput -split "`n")
 
             # --- /etc/passwd -> UserRows (shadow fields merged in below once shadow is parsed) ---
             $passwdLines = Get-LinuxSectionLines -Lines $lines -StartMarker '===PASSWD===' -EndMarker '===GROUP==='
@@ -481,20 +491,22 @@ echo '===END==='
             }
 
             # --- /etc/shadow (sudo-derived projection) -> merged into UserRows ---
-            # Comes back as sudo's own "not allowed"/"password is required" text instead of real
-            # data when the connecting account has no usable sudo access - detected by checking
-            # whether the lines actually look like the expected 4-field projection before trusting
-            # any of them, rather than assuming success.
+            # The target's awk classifies field 2 itself and sends back only the state name, never
+            # the hash (Security brief F2). Comes back as sudo's own "not allowed"/"password is
+            # required" text instead of real data when the connecting account has no usable sudo
+            # access - detected by checking that every line is user:<known state>:<days>:<days>
+            # before trusting any of them, rather than assuming success.
+            $passwordStatePattern = 'PasswordSet|PasswordSetButLocked|LockedNoHash|NeverSet|SystemNoLogin|SystemNoLoginLocked|Unknown'
             $shadowLines = Get-LinuxSectionLines -Lines $lines -StartMarker '===SHADOW===' -EndMarker '===SUDO==='
             $shadowLinesLookValid = @($shadowLines | Where-Object { $_ }).Count -gt 0 -and
-                -not @($shadowLines | Where-Object { $_ -and ($_ -notmatch '^[^:]+:[^:]*:[^:]*:[^:]*$') }).Count
+                -not @($shadowLines | Where-Object { $_ -and ($_ -notmatch "^[^:]+:($passwordStatePattern):[^:]*:[^:]*$") }).Count
             if ($shadowLinesLookValid) {
                 foreach ($line in $shadowLines) {
                     if (-not $line) { continue }
                     $fields = $line -split ':'
                     if ($fields.Count -lt 4 -or -not $usersByName.ContainsKey($fields[0])) { continue }
                     $userRow = $usersByName[$fields[0]]
-                    $userRow.PasswordState = ConvertTo-LinuxPasswordState -ShadowField2 $fields[1]
+                    $userRow.PasswordState = $fields[1]
                     $userRow.PasswordLastSet = if ($fields[2] -match '^\d+$') {
                         [DateTime]::Parse('1970-01-01Z').AddDays([double]$fields[2])
                     } else { $null }

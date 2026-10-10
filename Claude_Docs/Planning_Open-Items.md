@@ -134,5 +134,5 @@ See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
 - No automated test suite (Pester or otherwise) exists for any of the three scripts — all
   verification to date has been manual, live testing against real targets (see
   [Testing_Guide.md](Testing_Guide.md)) plus one isolated mock-object test for AD computer discovery.
-  Pure parsers like `ConvertFrom-LinuxFaillockOutput`, `ConvertTo-LinuxPasswordState` and
+  Pure parsers like `ConvertFrom-LinuxFaillockOutput` and
   `ConvertTo-LinuxSudoAccess` are the cheapest place to start a Pester suite.
