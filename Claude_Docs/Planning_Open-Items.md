@@ -114,14 +114,21 @@ See [Design_AD-Discovery.md](Design_AD-Discovery.md) Section 9 for full detail.
 
 ## Cross-cutting / project-wide
 
-- **`CredentialResolver.psm1`'s `CCP` and `Conjur` sources remain unverified against a real
-  deployment** — only `CurrentUser`/`PSCredential`/`CP` have been exercised live so far. `CP` was
-  verified end-to-end on 2026-09-17 (see the Linux section above and
-  [Archive_Design_Local-Linux-Discovery-Revision-Log.md](Archive_Design_Local-Linux-Discovery-Revision-Log.md), Round 10) and that
-  testing found and fixed a real output-parsing bug — worth treating `CCP`/`Conjur` with the same
-  suspicion until they get the same live-testing treatment, rather than assuming their
-  documented-pattern implementation is correct as written (LT-CRED-01/02).
-- **FIPS-mode hosts need LogaPe's FIPS fix (branch `2026-10-09-fips-mutex-hash`, after 0.5.0).**
+- **Security findings F1–F3** ([Reference_Security-Team-Brief.md](Reference_Security-Team-Brief.md#7-known-risks-and-open-findings)):
+  - **F1:** the Linux sudo password is embedded (base64) in the remote command line, so it's visible in the target's process list and in command auditing. Fix: send it over the SSH session's input stream.
+  - **F2:** `/etc/shadow` hashes are sent back to the scanning host for classification. Fix: classify on the target.
+  - **F3:** `AcceptNewHostKey` defaults to true, so host keys are trusted on first use.
+
+  All three are in `Modules\LocalLinuxComputerScanner.psm1`, `Export-LocalLinuxGroups.ps1` and its config.
+- **`Install-aPeDiscovery.ps1`'s elevated paths are untested.** The repository install/update and the offline bundle were tested; installing PowerShell 7, Posh-SSH and RSAT has only run as `-WhatIf` (LT-INST-01).
+
+- **`CredentialResolver.psm1`'s `Conjur` source is unverified against a real deployment.** `CP` was
+  verified end-to-end here on 2026-09-17 (see
+  [Archive_Design_Local-Linux-Discovery-Revision-Log.md](Archive_Design_Local-Linux-Discovery-Revision-Log.md),
+  Round 10), and that testing found and fixed a real output-parsing bug. `CCP` was verified live in
+  aPeSecrets on 2026-09-21 (its `Reference_Configuration.md`), but not yet through an aPeDiscovery
+  scan (LT-CRED-01). Treat `Conjur` with the same suspicion until it's tested (LT-CRED-02).
+- **FIPS-mode hosts need LogaPe's FIPS fix (merged to LogaPe `main` 2026-10-09, after 0.5.0).**
   LogaPe 0.5.0 and the `Logging.psm1` it replaced both named the log mutex with an MD5 hash, which
   throws on Windows PowerShell 5.1 under FIPS policy and would stop every script at its first log
   write. The LogaPe fix switches to `SHA256CryptoServiceProvider`. It still needs a run on a

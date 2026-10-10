@@ -51,6 +51,10 @@ See [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md)
 
 ## Quick start
 
+0. Install or update everything (PowerShell 7, the three repositories, Posh-SSH,
+   the AD module) from an elevated prompt with `Install-aPeDiscovery.ps1`. See
+   [Claude_Docs/Reference_Scanning-Host-Requirements.md](Claude_Docs/Reference_Scanning-Host-Requirements.md#10-setup-checklist)
+   for the one-line bootstrap, offline bundles, and what the script doesn't cover.
 1. Copy `Config\ScanConfig.example.json` to `Config\ScanConfig.json` and edit
    the `Domains` list.
 2. Copy `Config\ComputersToScan.example.csv` to `Config\ComputersToScan.csv`
@@ -75,6 +79,7 @@ See [Claude_Docs/Reference_CSV-Schemas.md](Claude_Docs/Reference_CSV-Schemas.md)
 Export-ADObjects.ps1           Domain group + membership (+ optional computer object) export
 Export-LocalGroups.ps1         Per-computer local Windows user/group/membership discovery
 Export-LocalLinuxGroups.ps1    Per-computer local Linux user/group/membership/sudo-rights discovery
+Install-aPeDiscovery.ps1       Installs/updates prerequisites and the three repositories (online or offline bundle)
 Modules\
   ADHelpers.psm1                 OU-depth-scoped search helper
   NetworkHelpers.psm1            TCP-connect reachability probe
@@ -89,6 +94,9 @@ Config\
 Claude_Docs\
   Reference_Configuration.md                     Full config/credential-source reference
   Reference_CSV-Schemas.md                       Script/output column reference
+  Reference_Scanning-Host-Requirements.md        What the scanning host needs (HR-* items): software, accounts, ports, folders
+  Reference_Network-Firewall-Requirements.md     For the network/firewall team: every connection and port
+  Reference_Security-Team-Brief.md               For the security team: accounts, activity, data, known risks
   Testing_Guide.md                     Step-by-step validation procedures for every feature
   Testing_Live-Test-Definitions.md     Labelled (LT-*) repeatable live tests, placeholders only
   Planning_Open-Items.md                        Project-wide backlog: open decisions, unbuilt features, verification gaps
