@@ -48,6 +48,8 @@ PowerShell scripts that export Active Directory group/membership data and per-co
 | Anything the scanning host must have or allow (software, module, account right, port, folder, policy) | `Claude_Docs/Reference_Scanning-Host-Requirements.md`: add or update an `HR-*` row; never renumber IDs. If the install script can provide it, update `Install-aPeDiscovery.ps1` too |
 | A new or changed network connection (destination, port, protocol) | `Claude_Docs/Reference_Network-Firewall-Requirements.md` and the matching `HR-NET-*` row |
 | Changes to accounts/privileges, data collected, credential handling, or commands run on targets | `Claude_Docs/Reference_Security-Team-Brief.md` (including its findings table) |
+| A target type changes status (researched, designed, built, verified) | `Claude_Docs/Planning_Target-Coverage.md` |
+| A question for the user that can wait | Append to `Claude_Docs/Planning_Questions.md` (next number, never renumber); when answered, record the answer in the doc that raised it and move the question to "Answered" |
 
 - For "verify the docs are updated", use a subagent to diff the branch against this checklist and report the gaps only.
 
