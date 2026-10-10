@@ -43,6 +43,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Same bytes on both editions: Windows PowerShell 5.1's UTF8 writes a BOM, PowerShell 7's doesn't.
+$csvEncoding = if ($PSVersionTable.PSVersion.Major -ge 6) { 'utf8BOM' } else { 'UTF8' }
+
 Import-Module ActiveDirectory -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot '..\LogaPe\LogaPe\LogaPe.psd1') -Force
 Import-Module (Join-Path $PSScriptRoot '..\aPeSecrets\Modules\CredentialResolver.psm1') -Force
@@ -295,9 +298,9 @@ foreach ($domain in $config.Domains) {
 $groupsCsvPath = Join-Path $config.OutputDirectory 'ADGroups.csv'
 $membersCsvPath = Join-Path $config.OutputDirectory 'ADGroupMembers.csv'
 $computersCsvPath = Join-Path $config.OutputDirectory 'ADComputers.csv'
-$groupRows | Export-Csv -Path $groupsCsvPath -NoTypeInformation -Encoding UTF8
-$memberRows | Export-Csv -Path $membersCsvPath -NoTypeInformation -Encoding UTF8
-$computerRows | Export-Csv -Path $computersCsvPath -NoTypeInformation -Encoding UTF8
+$groupRows | Export-Csv -Path $groupsCsvPath -NoTypeInformation -Encoding $csvEncoding
+$memberRows | Export-Csv -Path $membersCsvPath -NoTypeInformation -Encoding $csvEncoding
+$computerRows | Export-Csv -Path $computersCsvPath -NoTypeInformation -Encoding $csvEncoding
 
 $archiveDirectory = Join-Path $config.OutputDirectory 'Archive'
 New-Item -ItemType Directory -Path $archiveDirectory -Force | Out-Null

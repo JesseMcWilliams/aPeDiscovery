@@ -1,9 +1,12 @@
 # aPeDiscovery: Claude Code project notes
 
-PowerShell scripts that export Active Directory group/membership data and per-computer local Windows/Linux user, group and sudo-rights data to CSV, using CyberArk-resolved credentials. Runtime target is Windows PowerShell 5.1 (or PowerShell 7+); no `Set-StrictMode` or `#Requires` is used anywhere, so strict mode is not enabled.
+PowerShell scripts that export Active Directory group/membership data and per-computer local Windows/Linux user, group and sudo-rights data to CSV, using CyberArk-resolved credentials. Runtime target is **PowerShell 7** (new code is 7-only; see `Claude_Docs/Planning_Discovery-Data-Store.md`). The three existing scripts still also run on Windows PowerShell 5.1 and write identical CSVs on both (`$csvEncoding`); don't break that until they're moved to 7-only on purpose. No `Set-StrictMode` or `#Requires` is used anywhere, so strict mode is not enabled.
+
+**Resuming work:** read the newest `Claude_Docs/Planning_Handoff-*.md` first (currently `Planning_Handoff-2026-10-10.md`). It lists the open PRs and merge order, the branch stack, every finding and its status, and the next steps. Open questions for the user are in `Claude_Docs/Planning_Questions.md`.
 
 ## Folder map
 - `Export-ADObjects.ps1`, `Export-LocalGroups.ps1`, `Export-LocalLinuxGroups.ps1`: the three entry-point scripts (AD groups, local Windows, local Linux).
+- `Install-aPeDiscovery.ps1`: installs/updates the host prerequisites and all three repositories. It must stay Windows PowerShell 5.1-compatible, because it runs before PowerShell 7 exists. Test system-changing parts only with `-WhatIf`, or into a scratch `-InstallRoot` with `-Components Repositories`.
 - `Modules/`: `ADHelpers.psm1`, `NetworkHelpers.psm1`, `LocalComputerScanner.psm1`, `LocalLinuxComputerScanner.psm1` (783 lines — grep for the function and read a line range; don't read the whole file).
 - `Config/`: `.example.json`/`.example.csv` templates (tracked) plus the real `ScanConfig.json`/`LocalScanConfig.json`/`LinuxScanConfig.json`/`ComputersToScan.csv`/`LinuxComputersToScan.csv` (gitignored, real domain/computer/credential data).
 - `Output/`: gitignored runtime output/log/archive location — don't read from here for facts.
@@ -44,6 +47,11 @@ PowerShell scripts that export Active Directory group/membership data and per-co
 | New manual validation step or gotcha found while testing | `Claude_Docs/Testing_Guide.md` |
 | Backlog item opened or closed | `Claude_Docs/Planning_Open-Items.md` |
 | Any user-visible change (new CSV field, new script parameter, setup step) | One line in `Claude_Docs/Planning_User-Docs-Backlog.md`; update `User_Docs/` if it already covers that area |
+| Anything the scanning host must have or allow (software, module, account right, port, folder, policy) | `Claude_Docs/Reference_Scanning-Host-Requirements.md`: add or update an `HR-*` row; never renumber IDs. If the install script can provide it, update `Install-aPeDiscovery.ps1` too |
+| A new or changed network connection (destination, port, protocol) | `Claude_Docs/Reference_Network-Firewall-Requirements.md` and the matching `HR-NET-*` row |
+| Changes to accounts/privileges, data collected, credential handling, or commands run on targets | `Claude_Docs/Reference_Security-Team-Brief.md` (including its findings table) |
+| A target type changes status (researched, designed, built, verified) | `Claude_Docs/Planning_Target-Coverage.md` |
+| A question for the user that can wait | Append to `Claude_Docs/Planning_Questions.md` (next number, never renumber); when answered, record the answer in the doc that raised it and move the question to "Answered" |
 
 - For "verify the docs are updated", use a subagent to diff the branch against this checklist and report the gaps only.
 

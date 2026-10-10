@@ -30,6 +30,7 @@ Every test runs against the real, gitignored `Config\` files (`ScanConfig.json`,
 | `{LinuxNoFaillockHost}` | A `LinuxComputersToScan.csv` row whose PAM stack has no `pam_faillock` | `lnx-app02.contoso.com` |
 | `{LinuxKeySudoHost}` | A `LinuxComputersToScan.csv` row with `KeyFilePath` **and** `SudoCredentialSource` set; its account needs password-required sudo | `lnx-app03.contoso.com` |
 | `{LinuxDbHost}` | A `LinuxComputersToScan.csv` row running MySQL, MariaDB or MongoDB | `lnx-db01.contoso.com` |
+| `{InstallRoot}` | Install folder for `Install-aPeDiscovery.ps1` | `C:\aPe` |
 | `{DbEngine}` | The engine installed on `{LinuxDbHost}`, as `Engine` appears in `Get-DefaultLinuxDatabaseSignatures` | `MySQL/MariaDB` |
 
 ## Tests
@@ -191,6 +192,24 @@ The other half of the same open item.
 ```
 
 - **Pass when:** same as LT-CRED-01, for `{ConjurWinHost}`.
+
+### Installation (`Install-aPeDiscovery.ps1`)
+
+#### LT-INST-01: Install on a clean host, then update
+Proves the elevated install paths: PowerShell 7 MSI, Posh-SSH for all users, and RSAT. Needs a clean Windows host (a VM snapshot is ideal) and an elevated session. `{InstallRoot}` is the install folder, for example `C:\aPe`.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-aPeDiscovery.ps1 -InstallRoot '{InstallRoot}'; $LASTEXITCODE
+& "$env:ProgramFiles\PowerShell\7\pwsh.exe" -NoProfile -Command '$PSVersionTable.PSVersion; Get-Module -ListAvailable Posh-SSH, ActiveDirectory | Select-Object Name, Version'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-aPeDiscovery.ps1 -InstallRoot '{InstallRoot}'; $LASTEXITCODE
+```
+
+- **Pass when:**
+  - the first run exits 0, with PowerShell 7, the three repositories, Posh-SSH and the ActiveDirectory module all `Installed`;
+  - `pwsh` reports 7.6 or later, and lists Posh-SSH and ActiveDirectory;
+  - the second run exits 0 with every component `UpToDate`;
+  - `{InstallRoot}\InstallLogs` has a transcript per run, plus the MSI log.
+- **Notes:** repeat once with `-DownloadOnly -PackagePath` on a connected machine, then `-PackagePath` on an offline host. On Windows 10/11 without Windows Update, pass `-FeatureSource`.
 
 ## Adding a test
 - Group tests under a heading, and give each one the next label in its group (`LT-<GROUP>-<NN>`, for example `LT-LOGON-01`). Never reuse or renumber a label: `Live-Testing.local.md` refers to it.
