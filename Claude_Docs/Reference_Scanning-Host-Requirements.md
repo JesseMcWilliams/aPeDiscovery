@@ -48,7 +48,7 @@ The checks in [Section 10](#10-setup-checklist) confirm most items on a new host
 | ID | Requirement | Needed for | When | Verified |
 |---|---|---|---|---|
 | HR-MOD-01 | **ActiveDirectory module (RSAT).** Windows Server: `Install-WindowsFeature RSAT-AD-PowerShell`. Windows 10/11: `Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0`. | AD | Now | No (not yet on PowerShell 7) |
-| HR-MOD-02 | **Posh-SSH**, installed for all users so the scheduled task's account sees it: `Install-Module Posh-SSH -Scope AllUsers`. On an offline host, run `Save-Module` on a connected machine and copy the folder into `C:\Program Files\PowerShell\Modules\`. | Linux | Now | Yes on 5.1; No on 7 |
+| HR-MOD-02 | **Posh-SSH**, installed for all users so the scheduled task's account sees it: `Install-Module Posh-SSH -Scope AllUsers`. On an offline host, run `Save-Module` on a connected machine and copy the folder into `C:\Program Files\PowerShell\Modules\`. **Version:** the Linux security fixes (F1, F3) use SSH.NET's `SshCommand.CreateInputStream()` and `New-SSHSession -ErrorOnUntrusted`. Both were confirmed in **Posh-SSH 4.0.0** (SSH.NET 2025.1.0); older versions weren't checked, so treat 4.0.0 as the minimum until they are. | Linux | Now | Yes on 5.1 (older version); No on 7 |
 | HR-MOD-03 | **Pester 5 or later.** Only needed to run the test suites, not for scanning. Leave it off production hosts. | Dev only | Now | Dev |
 | HR-MOD-04 | Possibly the **Microsoft Visual C++ runtime** for the native SQLite library. The prototype ran on a development machine that may already have it; confirm on a clean host. | Store | Phase 1 | No |
 
