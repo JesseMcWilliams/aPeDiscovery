@@ -93,6 +93,8 @@ Claude_Docs\
   Testing_Live-Test-Definitions.md     Labelled (LT-*) repeatable live tests, placeholders only
   Planning_Open-Items.md                        Project-wide backlog: open decisions, unbuilt features, verification gaps
   Planning_User-Docs-Backlog.md        User-visible changes still to write up in User_Docs
+  Planning_AD-Object-Filters.md        AD export redesign: search types, LDAP filters, attributes (not built yet)
+  Planning_Discovery-Data-Store.md     SQLite store, config files, exports, PowerShell 7, phases (not built yet)
   Design_AD-Discovery.md               Design doc - AD group export (implemented)
   Design_Local-Windows-Discovery.md    Design doc - local Windows discovery (implemented)
   Design_Local-Linux-Discovery.md      Design doc - local Linux discovery, plus split-out
