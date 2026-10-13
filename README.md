@@ -108,7 +108,7 @@ Claude_Docs\
   Planning_Targets-*.md                Research per target category: directories, OSes, databases, network, hypervisors
   Planning_Target-Coverage.md          Coverage matrix and proposed build waves for every target type
   Planning_Questions.md                Numbered open questions awaiting decisions
-  Planning_Handoff-2026-10-10.md       Session handoff: state, branches/PRs, findings register, next steps
+  Planning_Handoff-2026-10-12.md       Session handoff: state, findings register, next steps
   Design_AD-Discovery.md               Design doc - AD group export (implemented)
   Design_Local-Windows-Discovery.md    Design doc - local Windows discovery (implemented)
   Design_Local-Linux-Discovery.md      Design doc - local Linux discovery, plus split-out

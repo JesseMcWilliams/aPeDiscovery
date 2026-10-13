@@ -1,70 +1,45 @@
-# Handoff: aPeDiscovery, LogaPe, aPeSecrets (2026-10-10)
+# Handoff: aPeDiscovery (2026-10-12)
 
-> **Stage: Planning (point-in-time snapshot).** Where the work stands at the end of the 2026-10-09 session, so it can be picked up later without re-reading the history. It covers all three sibling repositories. Superseded by any later `Planning_Handoff-*.md`; once a newer one exists, rename this one `Archive_Planning_Handoff-2026-10-10.md`.
-
-> **Update 2026-10-12: this handoff tracks aPeDiscovery only.** LogaPe and aPeSecrets are separate projects. Their work, questions and next steps are tracked in their own repositories, not here. Mentions of them below are history: the cross-repo changes aPeDiscovery depended on during the 2026-10-09 session. aPeDiscovery itself hasn't changed since 2026-10-10, so the findings register (Section 4) and the next steps (Section 5) are still current.
-
-> **Update 2026-10-10: everything below is merged.** Every branch and PR in Sections 2–3 is merged into `main` in all three repositories: aPeDiscovery PRs #6–#10, LogaPe #8, aPeSecrets #3. The topic branches and the two extra worktrees are deleted, and every checkout is on `main`. Sections 2–3 are kept as history; the findings, questions and next steps (Sections 4–7) still apply. In Section 5, skip "Merge or review the open PRs".
+> **Stage: Planning (point-in-time snapshot).** Where aPeDiscovery stands, so work can be picked up without re-reading the history. It covers this project only: LogaPe, aPeSecrets and LABaPe are separate projects with their own handoffs and backlogs. This replaces [Archive_Planning_Handoff-2026-10-10.md](Archive_Planning_Handoff-2026-10-10.md); once a newer handoff exists, rename this one `Archive_Planning_Handoff-2026-10-12.md`.
 
 ## 1. Start here
 
-1. Read this file, then [Planning_Questions.md](Planning_Questions.md). Most next steps wait on answers there (70–92) or on lab access (21).
-2. Check the PRs in Section 3; merging them in order unblocks the stacked branches.
-3. For context, in this order:
+1. Read this file, then [Planning_Questions.md](Planning_Questions.md). Most next steps wait on answers there (70-92) or on lab access (21).
+2. For context, in this order:
    - [Planning_Target-Coverage.md](Planning_Target-Coverage.md): what's covered, and the build waves;
    - [Planning_Collector-Architecture.md](Planning_Collector-Architecture.md): the target architecture and the credential workflow;
    - [Planning_AD-Object-Filters.md](Planning_AD-Object-Filters.md) and [Planning_Discovery-Data-Store.md](Planning_Discovery-Data-Store.md): the wave 1 designs;
    - [Planning_Open-Items.md](Planning_Open-Items.md): the full backlog.
-4. Live testing: `Live-Testing.local.md` (gitignored) now exists in the aPeDiscovery root. Read it **only** for live-testing tasks. CyberArk access was still being arranged.
+3. Live testing: `Live-Testing.local.md` (gitignored) in the project root. Read it **only** for live-testing tasks. CyberArk access was still being arranged.
 
-## 2. What was done (2026-10-09)
+## 2. Where things stand
 
-| # | Work | Repo / branch | State |
-|---|---|---|---|
-| 1 | `Export-ADGroups.ps1` renamed to `Export-ADObjects.ps1`; logging moved to LogaPe with default masking; Linux `BadPasswordAttempts` (pam_faillock); 12 `LT-*` live tests | aPeDiscovery `main` (PR #5) | **Merged** |
-| 2 | LogaPe mutex name uses a FIPS-validated hash (SHA256CryptoServiceProvider, not MD5) | LogaPe `main` (PR #7) | **Merged** |
-| 3 | PowerShell 7 support: LogaPe Event Log sink (`*-EventLog` cmdlets removed in 7), examples tested on 7 | LogaPe `2026-10-09-ps7-support` (PR #8) | Open |
-| 4 | PowerShell 7 support: aPeSecrets CP checks `AppID` before the SDK (test CR10 always failed without CP) | aPeSecrets `2026-10-09-ps7-support` (PR #3) | Open |
-| 5 | Identical CSV bytes on 5.1 and 7 (`$csvEncoding`: `utf8BOM` on 7) | aPeDiscovery `2026-10-09-ps7-support` (PR #7) | Open |
-| 6 | AD export redesign and data-store designs, decisions 25–62, SQLite prototype | aPeDiscovery `2026-10-09-ad-object-filters` (PR #6) | Open |
-| 7 | `Install-aPeDiscovery.ps1`; host requirements, network/firewall and security-team docs | aPeDiscovery `2026-10-09-host-setup` | Pushed, no PR |
-| 8 | Linux security fixes F1–F3 | aPeDiscovery `2026-10-09-linux-security-fixes` | Pushed, no PR |
-| 9 | Collector architecture, target research (5 docs), coverage matrix, questions doc, this handoff | aPeDiscovery `2026-10-09-target-research` | Pushed, no PR |
+- `main` only; no open PRs or extra worktrees. Nothing changed in the code since 2026-10-10. The 2026-10-12 work was this handoff and its predecessor's scope note (PR #11).
+- Dependencies: the scripts import LogaPe from the sibling folder `..\LogaPe` (e.g. `Export-ADObjects.ps1`). LogaPe is now at **v0.7.0** (adds a syslog sink; no breaking changes). aPeSecrets is unchanged.
 
-## 3. Branches, PRs and merge order
+## 3. Next steps
 
-```
-main
-├── 2026-10-09-ps7-support            PR #7   (independent)
-├── 2026-10-09-linux-security-fixes   no PR   (independent, from main)
-└── 2026-10-09-ad-object-filters      PR #6
-    └── 2026-10-09-host-setup         no PR   (built on #6)
-        └── 2026-10-09-target-research  no PR (built on host-setup)
-```
+**Waiting on the user** (questions in [Planning_Questions.md](Planning_Questions.md)):
+1. 70 (target types and counts), 71 (build the collector core alongside or replace), 72 (WinRM HTTPS + JEA), 73-74 (bootstrap secret, account lookup). The rest of 70-92 refine later waves.
 
-**Merge order:**
-1. LogaPe #8 and aPeSecrets #3 (any time).
-2. aPeDiscovery #6, then #7. #7's CLAUDE.md refers to `Planning_Discovery-Data-Store.md`, which #6 adds.
-3. Open PRs for `host-setup`, then `target-research`, after #6 is merged. Each then shows only its own commits.
-4. `linux-security-fixes` after LT-LNX-06 and LT-LNX-07 pass in the lab (or merge first and verify after, by choice).
+**Waiting on the lab** (definitions in [Testing_Live-Test-Definitions.md](Testing_Live-Test-Definitions.md)):
+2. LT-LNX-06/07: verify security fixes F1-F3.
+3. LT-LNX-02/03: faillock `BadPasswordAttempts`.
+4. LT-AD-01/02: AD exports against a real DC, including `ADComputers.csv`.
+5. LT-CRED-01/02: credential sources; Conjur has never been tested live (F5).
+6. LT-INST-01: the install script's elevated paths (only run with `-WhatIf` so far).
+7. The AD and Linux scans on PowerShell 7.
 
-Expect small conflicts:
-- `Planning_Open-Items.md` and `Planning_User-Docs-Backlog.md` are touched by several branches. Keep every added line.
-- `CLAUDE.md`'s runtime line differs between `ps7-support` and the stack. Keep the `ps7-support` wording.
-
-**Local checkouts (this machine):**
-
-| Folder | Branch | Notes |
-|---|---|---|
-| `C:\Code\aPeDiscovery` | `2026-10-09-target-research` | Main checkout; worktrees below share its `.git` |
-| `C:\Code\aPeDiscovery-ps7` | `2026-10-09-ps7-support` | Git worktree. Remove after merge: `git worktree remove C:\Code\aPeDiscovery-ps7` |
-| `C:\Code\aPeDiscovery-linuxfix` | `2026-10-09-linux-security-fixes` | Git worktree. Remove after merge |
-| `C:\Code\LogaPe` | `2026-10-09-ps7-support` | Switch to `main` after #8 merges |
-| `C:\Code\aPeSecrets` | `2026-10-09-ps7-support` | Switch to `main` after #3 merges; cloned this session |
+**Ready now, needs neither:**
+8. Wave 1: `Modules\DiscoveryStore.psm1` with the SQLite libraries in `Lib\`, the schema and migrations, and Pester tests ([Planning_Discovery-Data-Store.md](Planning_Discovery-Data-Store.md)).
+9. Wave 1: `New-ADObjectLdapFilter` with escaping and `Get-ScopedSearchBase`, plus this repo's first Pester suite ([Planning_AD-Object-Filters.md](Planning_AD-Object-Filters.md) §7).
+10. Config JSON schemas (`Config\Schemas\`) for general, search and export configs.
+11. Start `Core\` and the plug-in layout ([Planning_Collector-Architecture.md](Planning_Collector-Architecture.md) §5), with AD as the first plug-in.
+12. Optional: send scan logs to syslog with LogaPe 0.7.0's `Add-LoggerSyslogSink` (e.g. to a SIEM), configured in the general config. Needs a decision on whether that's wanted.
 
 ## 4. Findings register
 
-Every finding from this session, where it's documented, and its status. "Verify" means it's done but awaits a live test.
+Every aPeDiscovery finding so far, where it's documented, and its status (carried over from the 2026-10-10 handoff, unchanged since). "Verify" means it's done but awaits a live test.
 
 ### 4.1 Security
 
@@ -78,7 +53,6 @@ Every finding from this session, where it's documented, and its status. "Verify"
 | F6 | FIPS support never run on a FIPS host | Open | Security brief §7; HR-SEC-02 |
 | F7 | CP path/hash application authentication may change under `pwsh.exe` | Open; check in the PowerShell 7 rollout | Security brief §7; HR-CA-02 |
 | — | MD5 mutex name breaks on FIPS hosts (LogaPe and the old `Logging.psm1`) | Fixed and merged (LogaPe #7) | LogaPe CHANGELOG and Lessons-Learned |
-| — | The old `Logging.psm1` wrote unguarded if its mutex wait timed out | Gone (replaced by LogaPe) | Design_Local-Windows-Discovery |
 | — | The install script hashes with `SHA256CryptoServiceProvider`, because `Get-FileHash`'s managed SHA-256 fails under FIPS on .NET Framework | Built in | `Install-aPeDiscovery.ps1` comments |
 
 ### 4.2 Functional and design
@@ -97,9 +71,7 @@ Every finding from this session, where it's documented, and its status. "Verify"
 
 | Finding | Status | Documented in |
 |---|---|---|
-| PowerShell 7 removed `New-EventLog`/`Write-EventLog`, so LogaPe's Event Log sink failed on 7 | Fixed (LogaPe #8) | LogaPe CHANGELOG and Lessons-Learned |
 | `Export-Csv -Encoding UTF8` writes no BOM on 7 (Excel misreads non-ASCII text) | Fixed (aPeDiscovery #7) | aPeDiscovery-ps7 README/CLAUDE.md |
-| aPeSecrets test CR10 failed on any host without CP | Fixed (aPeSecrets #3) | aPeSecrets backlog |
 | On .NET Framework, `SHA256.Create()` returns the non-FIPS `SHA256Managed` | Avoided everywhere | LogaPe Lessons-Learned |
 | Microsoft.Data.Sqlite 10.0.12 needs **SQLitePCLRaw 2.1.x**, not 3.x | Recorded | Planning_Discovery-Data-Store §4.1 |
 | The native `e_sqlite3.dll` must be pre-loaded by full path (`NativeLibrary.Load`) | Recorded | Planning_Discovery-Data-Store §4.1 |
@@ -128,33 +100,12 @@ Every finding from this session, where it's documented, and its status. "Verify"
 | Mainframe coverage is best done with an IRRDBU00 (RACF) batch extract, handed over CMS-encrypted | Planning_Targets-Operating-Systems §5 |
 | Targets shouldn't hold signing keys; use a per-run HMAC for result integrity, and certificates for encryption and code signing | Planning_Collector-Architecture §4 |
 
-## 5. Next steps
-
-**Blocked on you:** the questions in [Planning_Questions.md](Planning_Questions.md), especially 70 (environment), 72 (WinRM), 73–74 (credentials), 71 (replace vs. alongside).
-
-**Blocked on the lab:**
-- LT-LNX-06/07 (F1–F3);
-- LT-LNX-02/03 (faillock);
-- LT-AD-01/02;
-- LT-CRED-01/02;
-- LT-INST-01;
-- the AD and Linux scans on PowerShell 7.
-
-**Ready to do without either:**
-1. Merge or review the open PRs (Section 3).
-2. **Wave 1 build start:** `Modules\DiscoveryStore.psm1` with the SQLite libraries in `Lib\`, the schema and migrations, and Pester tests. The design is in Planning_Discovery-Data-Store.
-3. **Wave 1:** `New-ADObjectLdapFilter` with escaping and `Get-ScopedSearchBase`, plus this repo's first Pester suite. Pure functions, offline-testable (Planning_AD-Object-Filters §7).
-4. Config JSON schemas (`Config\Schemas\`) for general, search and export configs.
-5. Start `Core\` and the plug-in layout (Planning_Collector-Architecture §5), with AD as the first plug-in.
-
 ## 6. Environment notes (this development machine)
 
 | Item | Detail |
 |---|---|
 | PowerShell 7 | **7.6.6 is installed** at `C:\Program Files\PowerShell\7\pwsh.exe`, but **not on PATH**, so `pwsh` alone isn't found; use the full path. (A portable copy used during the session was in a temporary scratch folder and is gone.) |
 | Pester | 6.1.0 in `C:\Users\ladmin\Documents\WindowsPowerShell\Modules` (Windows PowerShell's path only). In `pwsh`, import it by path, or prepend that folder to `PSModulePath`. |
-| LogaPe tests on 7 | Set `$env:LOGAPE_PWSH` to the pwsh path; `Invoke-Pester -Path .\Tests` then runs every example on 5.1 and 7. |
-| aPeSecrets tests on 7 | Prepend the Pester folder to `PSModulePath`, then `& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -File .\Tests\Run-Tests.ps1`. |
 | Not installed here | RSAT ActiveDirectory module, Posh-SSH, CyberArk Credential Provider. AD, Linux and CP paths can only be tested in the lab. |
 | Install-script testing | Safe locally with `-WhatIf`, `-DownloadOnly -PackagePath <scratch>`, or `-Components Repositories -InstallRoot <scratch>`. Elevated components change the machine. |
 | Smoke test | `Export-LocalGroups.ps1` against this machine's own name with `CurrentUser` credentials works on 5.1 and 7. `localhost` fails (an ADSI WinNT limitation, not a bug). |
@@ -162,7 +113,9 @@ Every finding from this session, where it's documented, and its status. "Verify"
 ## 7. Conventions in force
 
 - Numbered lists for actions, options and questions, with stable numbers. Questions continue from 93; record them in Planning_Questions.md.
-- Commit, push, PR or merge only when asked. The user asked for commit-and-push at each stopping point, **no PRs yet**, for the current research work.
-- Topic branches `YYYY-MM-DD-<topic>`; never work on `main`.
+- Commit, push, PR or merge only when asked.
+- Topic branches `YYYY-MM-DD-<topic>`; never work on `main`. Merge with `--delete-branch`.
+- Track only aPeDiscovery items here; other projects' items go in their own repositories.
 - Never write secrets anywhere; the placeholder password is `ThisIsMy_FAKE_Password6!`.
+- Commands handed to the user use full paths and say which user runs them.
 - Keep the Reference docs current: host requirements (`HR-*`), network (`HR-NET-*`), security brief (findings), coverage matrix. See CLAUDE.md's docs table.
